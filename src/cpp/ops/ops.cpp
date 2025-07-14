@@ -82,13 +82,9 @@ serialize(std::shared_ptr<assembler_state> state, std::vector<symbol>& symbols,
 
       if (arg.m_width == width_8)
       {
-        if (val == static_cast<uint32_t>(-1))
-          val = 0;
         ret.push_back(val & BYTE_MASK);
       } else if (arg.m_width == width_16)
       {
-        if (val == static_cast<uint32_t>(-1))
-          val = 0;
         // For opcode is 'apply_offset_57' and arg is 'offset',
         // if val is 0xFFFF means we need to patch the host address of 1st page of controlcode
         // and we can patch in host and firmware, we send "control-code-X" as symbol name and 0xFFFF in apply_offset_57
@@ -148,8 +144,6 @@ serialize(std::shared_ptr<assembler_state> state, std::vector<symbol>& symbols,
         ret.push_back((val >> SECOND_BYTE_SHIFT) & BYTE_MASK);
       } else if (arg.m_width == width_32)
       {
-        if (val == static_cast<uint32_t>(-1))
-          val = 0;
         ret.push_back((val >> FIRST_BYTE_SHIFT)& BYTE_MASK);
         ret.push_back((val >> SECOND_BYTE_SHIFT) & BYTE_MASK);
         ret.push_back((val >> THIRD_BYTE_SHIFT) & BYTE_MASK);

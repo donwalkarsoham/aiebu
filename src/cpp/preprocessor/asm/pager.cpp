@@ -96,6 +96,11 @@ extractjobs(assembler_state& state, std::shared_ptr<job> pjob)
   }
   // Explicit dependencies (e.g. launch_job relation)
   jobids = union_of_lists_inorder<jobid_type>(jobids, pjob->m_dependentjobs);
+  for (auto& dep_job:pjob->m_dependentjobs)
+  {
+    auto dep_job_list =  extractjobs(state, state.m_jobmap[dep_job]);
+    jobids = union_of_lists_inorder<jobid_type>(jobids, dep_job_list);
+  }
   return jobids;
 }
 

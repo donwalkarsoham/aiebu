@@ -10,7 +10,10 @@ namespace aiebu {
 class aie4_preprocessor_input : public asm_preprocessor_input
 {
 public:
-  aie4_preprocessor_input() { control_packet_patching = symbol::patch_schema::control_packet_57_aie4;}
+  aie4_preprocessor_input() {
+    control_packet_patching = symbol::patch_schema::control_packet_57_aie4;
+    m_control_packet_offset_correction = 4;
+  }
 
 };
 

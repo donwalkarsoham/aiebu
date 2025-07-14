@@ -78,7 +78,7 @@ namespace aiebu {
       // Check if the control packet offset is within the control packet size
       validate_json(control_packet_offset, control_packet_size, arg_index, offset_type::CONTROL_PACKET);
       // move 8 bytes(header) up for unifying the patching scheme between DPU sequence and transaction-buffer
-      uint32_t offset = control_packet_offset - 8;
+      uint32_t offset = control_packet_offset - m_control_packet_offset_correction;
 
       // TODO added symbols name hardcoded to ".pad.0" and col 0
       // this will change once compiler decide on how to generate multi col control packet design
@@ -138,8 +138,7 @@ namespace aiebu {
       uint32_t arg_index = get_32_bit_property(patch, "xrt_arg_id");
       // check if the offset is less than the size of the control packet
       validate_json(control_packet_offset, control_packet_size, arg_index, offset_type::CONTROL_PACKET);
-      // move 8 bytes(header) up for unifying the patching scheme between DPU sequence and transaction-buffer
-      uint32_t offset = control_packet_offset - 8;
+      uint32_t offset = control_packet_offset - m_control_packet_offset_correction;
       const uint32_t addend = get_32_bit_property(patch, "bo_offset");
 
       // TODO added symbols name hardcoded to ".pad.0" and col 0
