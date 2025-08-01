@@ -19,7 +19,6 @@ class preprocessor_input
 protected:
   std::map<std::string, std::vector<char>> m_data;
   std::vector<symbol> m_sym;
-  std::unordered_map<std::string, std::string> m_metadata;
 
   class argument {
     public:
@@ -99,17 +98,6 @@ public:
   void add_symbols(const std::vector<symbol>& syms)
   {
     m_sym.insert( m_sym.end(), syms.begin(), syms.end());
-  }
-
-  void add_metadata(const std::string& key, std::string val)
-  {
-    m_metadata[key] = std::move(val);
-  }
-
-  std::unordered_map<std::string, std::string>&
-  get_metadata()
-  {
-    return m_metadata;
   }
 };
 

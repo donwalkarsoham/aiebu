@@ -115,11 +115,11 @@ class target_aie2blob_dpu: public target_aie2blob
   void assemble(const sub_cmd_options &_options) override;
 };
 
-class target_config: public target
+class target_aie2_config: public target
 {
   public:
   void assemble(const sub_cmd_options &_options) override;
-  explicit target_config(const std::string& name): target(name, "config", "generate config elf") {}
+  explicit target_aie2_config(const std::string& name): target(name, "aie2_config", "generate aie2 config elf") {}
 };
 
 class target_aie4: public target

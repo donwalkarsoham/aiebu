@@ -50,12 +50,12 @@ add_custom_command(
 )
 add_custom_target(ctrlcodelib DEPENDS ${AIEBU_PREEMPT_GEN_FILES})
 
-install(
-  FILES ${AIEBU_PREEMPT_GEN_FILES}
-  DESTINATION ${AIEBU_INSTALL_AIE_LIB_DIR}
-  CONFIGURATIONS Debug Release
-  COMPONENT Runtime
-)
+# install(
+#   FILES ${AIEBU_PREEMPT_GEN_FILES}
+#   DESTINATION ${AIEBU_INSTALL_AIE_LIB_DIR}
+#   CONFIGURATIONS Debug Release
+#   COMPONENT ${AIEBU_COMPONENT}
+# )
 
 # For Copy transaction commands and ELF Generation
 set(AIEBU_COPY_EXE "copy")
@@ -72,7 +72,10 @@ target_include_directories(${AIEBU_COPY_EXE}
   ${AIEBU_SOURCE_DIR}/src/cpp/include
 )
 
-target_link_libraries(${AIEBU_COPY_EXE} xaiengine aiebu_static)
+target_link_libraries(${AIEBU_COPY_EXE} PRIVATE xaiengine aiebu_static)
+if (NOT WIN32)
+  target_link_libraries(${AIEBU_COPY_EXE} PRIVATE pthread)
+endif()
 
 add_custom_command(
   OUTPUT ${AIEBU_COPY_GEN_FILES}
@@ -85,10 +88,10 @@ add_custom_command(
 
 add_custom_target(copyctrlcodelib DEPENDS ${AIEBU_COPY_GEN_FILES})
 
-install(FILES ${AIEBU_GEN_DIR}/copy_Mem_Tile_to_DDR.bin ${AIEBU_GEN_DIR}/copy_DDR_to_Mem_Tile.bin
-  DESTINATION ${AIEBU_INSTALL_AIE_LIB_DIR}
-  CONFIGURATIONS Debug Release COMPONENT Runtime
-)
+# install(FILES ${AIEBU_GEN_DIR}/copy_Mem_Tile_to_DDR.bin ${AIEBU_GEN_DIR}/copy_DDR_to_Mem_Tile.bin
+#   DESTINATION ${AIEBU_INSTALL_AIE_LIB_DIR}
+#   CONFIGURATIONS Debug Release COMPONENT ${AIEBU_COMPONENT}
+# )
 
 set(AIEBU_CHECKSUMS_FILE "${AIEBU_GEN_DIR}/checksums.txt")
 add_custom_command(

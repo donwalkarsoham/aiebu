@@ -27,8 +27,9 @@ enum aiebu_assembler_buffer_type {
   aiebu_assembler_buffer_type_blob_instr_transaction,
   aiebu_assembler_buffer_type_blob_control_packet,
   aiebu_assembler_buffer_type_asm_aie2ps,
-  aiebu_assembler_buffer_type_config,
+  aiebu_assembler_buffer_type_asm_aie2,
   aiebu_assembler_buffer_type_asm_aie4,
+  aiebu_assembler_buffer_type_aie2_config,
   aiebu_assembler_buffer_type_aie2ps_config,
   aiebu_assembler_buffer_type_aie4_config
 };

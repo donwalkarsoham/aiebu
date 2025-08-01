@@ -20,10 +20,11 @@ class aie2_blob_preprocessed_output : public preprocessed_output
   // ELF binaries produced on Linux and Windows to look different .
   std::map<std::string, std::vector<uint8_t>> m_data;
   std::vector<symbol> m_sym;
-  std::unordered_map<std::string, std::string> m_metadata;
-
+  std::shared_ptr<const partition_info> m_partition;
 public:
-  aie2_blob_preprocessed_output() {}
+  explicit aie2_blob_preprocessed_output(std::shared_ptr<const partition_info> partition): m_partition(std::move(partition)) {}
+
+  std::shared_ptr<const partition_info> get_partition_info() const { return m_partition; }
 
   std::vector<symbol>& get_symbols()
   {
@@ -60,15 +61,49 @@ public:
       throw error(error::error_code::internal_error, "Key (" + key + ") not found!!!");
     return m_data[key];
   }
+};
 
-  void add_metadata(std::unordered_map<std::string, std::string>&& metadata)
+class instance_output
+{
+  std::map<std::string, std::shared_ptr<aie2_blob_preprocessed_output>> m_instance;
+  std::map<std::string, std::vector<uint8_t>> m_data_common;
+public:
+
+  const std::map<std::string, std::shared_ptr<aie2_blob_preprocessed_output>>& get_instance_map() const
   {
-    m_metadata = std::move(metadata);
+    return m_instance;
   }
 
-  std::unordered_map<std::string, std::string>& get_metadata()
+  const std::map<std::string, std::vector<uint8_t>>& get_common() const
   {
-    return m_metadata;
+    return m_data_common;
+  }
+
+  void add_instance(const std::string& instance, std::shared_ptr<aie2_blob_preprocessed_output> val)
+  {
+    m_instance[instance] = val;
+  }
+
+  void add_common_data(const std::string& dname, std::vector<uint8_t> val)
+  {
+    m_data_common[dname] = std::move(val);
+  }
+};
+
+class aie2_config_preprocessed_output: public preprocessed_output
+{
+  std::map<std::string, instance_output> m_output;
+public:
+
+  const std::map<std::string, instance_output>&
+  get_kernel_map() const { return m_output; }
+
+  void add_kernel_map(const std::string& kernel, const std::string& instance, std::shared_ptr<aie2_blob_preprocessed_output> val) {
+    m_output[kernel].add_instance(instance, val);
+  }
+
+  void add_kernel_common_data(const std::string& kernel, const std::string& dname, std::vector<uint8_t> val) {
+    m_output[kernel].add_common_data(dname, std::move(val));
   }
 };
 

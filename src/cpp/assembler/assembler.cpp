@@ -16,8 +16,6 @@
 #include "elfwriter.h"
 #include "encoder.h"
 #include "preprocessor.h"
-#include "elf/config/config_elfwriter.h"
-#include "config_preprocessor.h"
 
 #include "aiebu/aiebu_error.h"
 
@@ -54,11 +52,11 @@ assembler(const elf_type type)
     m_elfwriter = std::make_unique<aie2ps_elf_writer>();
     m_ppi = std::make_shared<aie2ps_preprocessor_input>();
   }
-  else if (type == elf_type::config)  {
-    m_preprocessor = std::make_unique<config_preprocessor>();
-    m_enoder = std::make_unique<aie2_blob_encoder>();
-    m_elfwriter = std::make_unique<config_elf_writer>();
-    m_ppi = std::make_shared<config_preprocessor_input>();
+  else if (type == elf_type::aie2_config)  {
+    m_preprocessor = std::make_unique<aie2_config_preprocessor>();
+    m_enoder = std::make_unique<aie2_config_encoder>();
+    m_elfwriter = std::make_unique<aie2_config_elf_writer>();
+    m_ppi = std::make_shared<aie2_config_preprocessor_input>();
   }
   else if (type == elf_type::aie4_asm)
   {

@@ -149,7 +149,6 @@ public:
       }
       std::string mangled_name = mangle_function_name(func);
       //std::cout << "Mangled Function Name: " << mangled_name << std::endl;
-      add_metadata("kernel.signature", mangled_name);
 
       const auto& pt_pdis = ctrlcode.get_child_optional("PDIs");
       if (pt_pdis)

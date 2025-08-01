@@ -29,27 +29,6 @@ public:
   aie2ps_config_elf_writer(): elf_writer(ob_abi, version)
   { }
 
-  std::string get_group_name(uint32_t index) {return ".group."+ std::to_string(index); }
-  std::string get_section_prefix(uint32_t index) {return "."+ std::to_string(index); }
-
-  void
-  add_group(const std::string& name, const std::vector<uint32_t>& member, ELFIO::Elf_Word info_index)
-  {
-    // add section
-    ELFIO::section* sec = m_elfio.sections.add(name);
-    sec->set_type(ELFIO::SHT_GROUP);
-    sec->set_flags(ELFIO::SHF_ALLOC);
-    sec->set_addr_align(align);
-    sec->set_info(info_index);
-    sec->set_entry_size(4);
-
-    if(member.size())
-      sec->set_data(reinterpret_cast<const char*>(member.data()), static_cast<ELFIO::Elf_Word>(member.size()*4));
-
-    const ELFIO::section* lsec = m_elfio.sections[".symtab"];
-    sec->set_link(lsec->get_index());
-  }
-
   /**
    * This function gets config_writer object which has map<kernel, map<instance, vector<pages>>.
    * It traverse each kernel, its instances and push corresponding pages in elf.

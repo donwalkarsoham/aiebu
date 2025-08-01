@@ -60,9 +60,9 @@ aiebu_assembler(buffer_type type,
     elf_data = a.process(buffer1, libs, libpaths, patch_json);
     m_output_type = aiebu::aiebu_assembler::buffer_type::elf_aie2ps;
   }
-  else if (type == buffer_type::config)
+  else if (type == buffer_type::aie2_config)
   {
-    aiebu::assembler a(assembler::elf_type::config);
+    aiebu::assembler a(assembler::elf_type::aie2_config);
     elf_data = a.process(buffer1, libs, libpaths, patch_json, buffer2);
     m_output_type = aiebu::aiebu_assembler::buffer_type::elf_aie2_config;
   }

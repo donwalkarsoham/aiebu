@@ -66,14 +66,16 @@ protected:
 
   std::map<uint32_t, std::string> xrt_id_map;
   std::vector<uint32_t> pm_id_list;
+  std::vector<std::string> pdi_id_list;
   bool haspreempt = false;
+  std::shared_ptr<partition_info> m_partition;
   virtual uint32_t extractSymbolFromBuffer(std::vector<char>& mc_code, const std::string& section_name, const std::string& argname) = 0;
-  void aiecompiler_json_parser(const boost::property_tree::ptree& pt, const std::string& instance_id);
+  void aiecompiler_json_parser(const boost::property_tree::ptree& pt);
   void dmacompiler_json_parser(const boost::property_tree::ptree& pt);
-  void readmetajson(std::istream& patch_json, const std::string& instance_id);
+  void readmetajson(std::istream& patch_json);
   void extract_control_packet_patch(const std::string& name, uint32_t arg_index,
-                                    const boost::property_tree::ptree& _pt, const std::string& instance_id);
-  void extract_coalesed_buffers(const std::string& name, const boost::property_tree::ptree& _pt, const std::string& instance_id);
+                                    const boost::property_tree::ptree& _pt);
+  void extract_coalesed_buffers(const std::string& name, const boost::property_tree::ptree& _pt);
   void clear_shimBD_address_bits(std::vector<char>& mc_code, uint32_t offset) const;
   void validate_json(uint32_t offset, uint32_t size, uint32_t arg_index, offset_type type) const;
   uint32_t get_32_bit_property(const boost::property_tree::ptree& pt, const std::string& property, bool defaultvalue = false) const;
@@ -83,8 +85,15 @@ protected:
     return ".pdi." + std::to_string(pdi_id);
   }
 
+  void set_numcolumn(uint32_t col) { m_partition->set_numcolumn(col); }
 public:
-  aie2_blob_preprocessor_input() = default;
+  aie2_blob_preprocessor_input()
+  {
+    m_partition = std::make_shared<partition_info>(DEFAULT_COLUMN, 0);
+  }
+
+  std::shared_ptr<const partition_info> get_partition_info() const { return std::const_pointer_cast<const partition_info>(m_partition); }
+
   virtual void set_args(const std::vector<char>& mc_code,
                         const std::vector<char>& patch_json,
                         const std::vector<char>& control_packet,
@@ -115,10 +124,45 @@ public:
     {
       vector_streambuf vsb(patch_json);
       std::istream elf_stream(&vsb);
-      readmetajson(elf_stream, "");
+      readmetajson(elf_stream);
     }
 
     auto col = extractSymbolFromBuffer(m_data[".ctrltext"], ctrlText, "");
+    set_numcolumn(col);
+
+    if (haspreempt)
+      add_preemption_code(col);
+  }
+
+  virtual void set_args(const std::vector<char>& mc_code,
+                       const std::vector<char>& patch_json,
+                       const std::vector<char>& control_packet,
+                       const std::vector<std::string>& /*flags*/,
+                       const std::vector<std::string>& /*libpaths*/,
+                       const std::vector<uint32_t>& pmid_list,
+                       const std::vector<std::string>& pdi_list)
+  {
+    arg_offset = 0;
+    m_data[".ctrltext"] = mc_code;
+
+    if(control_packet.size())
+      m_data[".ctrldata"] = control_packet;
+
+    for (auto id : pmid_list)
+      pm_id_list.push_back(id);
+
+    for (auto& pdi_name : pdi_list)
+      pdi_id_list.push_back(pdi_name);
+
+    if (patch_json.size() !=0 )
+    {
+      vector_streambuf vsb(patch_json);
+      std::istream elf_stream(&vsb);
+      readmetajson(elf_stream);
+    }
+
+    auto col = extractSymbolFromBuffer(m_data[".ctrltext"], ctrlText, "");
+    set_numcolumn(col);
 
     if (haspreempt)
       add_preemption_code(col);
@@ -173,6 +217,19 @@ public:
                         const std::map<uint32_t, std::vector<char> >& ctrlpkt) override
   {
     aie2_blob_preprocessor_input::set_args(mc_code, patch_json, control_packet, libs, libpaths, ctrlpkt);
+    resize_scratchpad(preempt_save);
+    resize_scratchpad(preempt_restore);
+  }
+
+  void set_args(const std::vector<char>& mc_code,
+                const std::vector<char>& patch_json,
+                const std::vector<char>& control_packet,
+                const std::vector<std::string>& flags,
+                const std::vector<std::string>& libpaths,
+                const std::vector<uint32_t>& pmid_list,
+                const std::vector<std::string>& pdi_list) override
+  {
+    aie2_blob_preprocessor_input::set_args(mc_code, patch_json, control_packet, flags, libpaths, pmid_list, pdi_list);
     resize_scratchpad(preempt_save);
     resize_scratchpad(preempt_restore);
   }
@@ -287,28 +344,67 @@ public:
   }
 };
 
-class config_preprocessor_input : public aie2_blob_transaction_preprocessor_input
+class instance_input
 {
-  uint32_t col = 0;
-protected:
-  void readconfigjson(std::istream& patch_json);
-  void add_pdi(const boost::property_tree::ptree& pinstance);
-  void add_instance(const boost::property_tree::ptree& pinstance);
-  std::string get_ctrltext_name(std::string instance_id)
+  std::map<std::string, std::vector<char>> m_data_common;
+  std::map<std::string, std::shared_ptr<aie2_blob_transaction_preprocessor_input>> m_instances;
+  std::vector<uint32_t> pm_id_list;
+  std::vector<std::string> pdi_id_list;
+public:
+
+  const std::map<std::string, std::shared_ptr<aie2_blob_transaction_preprocessor_input>>& get_instance_map() const
   {
-    return ".ctrltext." + instance_id;
+    return m_instances;
   }
-  std::string get_ctrldata_name(std::string instance_id)
+
+  const std::map<std::string, std::vector<char>>& get_common() const
   {
-    return ".ctrldata." + instance_id;
+    return m_data_common;
+  }
+
+  void add_instance(const std::string& instance, std::shared_ptr<aie2_blob_transaction_preprocessor_input> val)
+  {
+    m_instances[instance] = val;
+  }
+
+  void add_common_data(const std::string& dname, std::vector<char> val)
+  {
+    m_data_common[dname] = std::move(val);
+  }
+
+  const std::vector<uint32_t>& get_pm_id_list() const { return pm_id_list; }
+
+  void add_pm_id(uint32_t val) { pm_id_list.push_back(val); }
+
+  const std::vector<std::string>& get_pdi_id_list() const { return pdi_id_list; }
+
+  void add_pdi_id(std::string val) { pdi_id_list.emplace_back(std::move(val)); }
+};
+
+class aie2_config_preprocessor_input : public aie2_blob_transaction_preprocessor_input
+{
+  static constexpr const char* pm_ctrlpkt_type = "pmctrlpkt";
+  std::map<std::string, instance_input> kernel_map;
+protected:
+  void readconfigjson(std::istream& patch_json, const std::vector<std::string>& paths);
+  void add_pdi(const std::string& kernel, const boost::property_tree::ptree& pinstance, const std::vector<std::string>& paths);
+  void add_instance(const std::string& kernel, const boost::property_tree::ptree& pinstance,const std::vector<std::string>& paths);
+
+  std::string get_pdi_name(uint32_t pdi_id)
+  {
+    return ".pdi." + std::to_string(pdi_id);
+  }
+
+  std::string get_pmctrlpkt_name(uint32_t pdi_id)
+  {
+    return ".ctrlpkt.pm." + std::to_string(pdi_id);
   }
 public:
-  config_preprocessor_input() = default;
   void set_args(const std::vector<char>& /*mc_code*/,
                 const std::vector<char>& patch_json,
                 const std::vector<char>& /*control_packet*/,
                 const std::vector<std::string>& /*libs*/,
-                const std::vector<std::string>& /*libpaths*/,
+                const std::vector<std::string>& libpaths,
                 const std::map<uint32_t, std::vector<char> >& /*ctrlpkt*/) override
   {
     arg_offset = 0;
@@ -316,14 +412,13 @@ public:
     {
       vector_streambuf vsb(patch_json);
       std::istream elf_stream(&vsb);
-      readconfigjson(elf_stream);
+      readconfigjson(elf_stream, libpaths);
     }
-
-    add_metadata("configuration", std::to_string(col));
-
-    if (haspreempt)
-      add_preemption_code(col);
   }
+
+  const std::map<std::string, instance_input>&
+  get_kernel_map() const { return kernel_map; }
 };
+
 }
 #endif //_AIEBU_PREPROCESSOR_AIE2_BLOB_PREPROCESSOR_INPUT_H_

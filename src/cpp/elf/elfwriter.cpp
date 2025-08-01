@@ -290,4 +290,23 @@ process(std::vector<std::shared_ptr<writer>>& mwriter)
   return finalize();
 }
 
+void
+elf_writer::
+add_group(const std::string& name, const std::vector<uint32_t>& member, ELFIO::Elf_Word info_index)
+{
+  // add section
+  ELFIO::section* sec = m_elfio.sections.add(name);
+  sec->set_type(ELFIO::SHT_GROUP);
+  sec->set_flags(ELFIO::SHF_ALLOC);
+  sec->set_addr_align(align);
+  sec->set_info(info_index);
+  sec->set_entry_size(4);
+
+  if(member.size())
+    sec->set_data(reinterpret_cast<const char*>(member.data()), static_cast<ELFIO::Elf_Word>(member.size()*4));
+
+  const ELFIO::section* lsec = m_elfio.sections[".symtab"];
+  sec->set_link(lsec->get_index());
+}
+
 }

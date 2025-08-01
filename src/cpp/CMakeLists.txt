@@ -36,7 +36,7 @@ target_include_directories(aiebu_library_objects
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${AIEBU_SOURCE_DIR}
   ${AIEBU_AIE_RT_HEADER_DIR}
-  ${AIEBU_BINARY_DIR}/lib
+  ${AIEBU_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}
   ${Boost_INCLUDE_DIRS}
 
   # The following should be spelled out in code
@@ -51,7 +51,7 @@ target_include_directories(aiebu_library_objects
   ${CMAKE_CURRENT_SOURCE_DIR}/assembler
   ${CMAKE_CURRENT_SOURCE_DIR}/elf
   ${CMAKE_CURRENT_SOURCE_DIR}/elf/aie2
-  ${AIEBU_BINARY_DIR}/lib/gen
+  ${AIEBU_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}/gen
   )
 
 target_compile_definitions(aiebu_library_objects
@@ -97,8 +97,9 @@ if (MSVC)
 endif()
 
 install (TARGETS aiebu_static
-  ARCHIVE DESTINATION ${AIEBU_INSTALL_LIB_DIR}
-  LIBRARY DESTINATION ${AIEBU_INSTALL_LIB_DIR}
+  EXPORT aiebu-targets
+  LIBRARY DESTINATION ${AIEBU_INSTALL_LIB_DIR} COMPONENT ${AIEBU_COMPONENT} NAMELINK_COMPONENT ${AIEBU_DEV_COMPONENT}
+  ARCHIVE DESTINATION ${AIEBU_INSTALL_LIB_DIR} COMPONENT ${AIEBU_DEV_COMPONENT}
 )
 
 install(FILES
@@ -106,14 +107,5 @@ install(FILES
   include/aiebu/aiebu_assembler.h
   include/aiebu/aiebu_error.h
   DESTINATION ${AIEBU_INSTALL_INCLUDE_DIR}/aiebu
-  CONFIGURATIONS Debug Release COMPONENT Runtime
-)
-
-# Deprecated include path, redirects to aiebu/*.h with warning
-install(FILES
-  include/deprecated/aiebu.h
-  include/deprecated/aiebu_assembler.h
-  include/deprecated/aiebu_error.h
-  DESTINATION ${AIEBU_INSTALL_INCLUDE_DIR}
-  CONFIGURATIONS Debug Release COMPONENT Runtime
+  CONFIGURATIONS Debug Release COMPONENT ${AIEBU_DEV_COMPONENT}
 )

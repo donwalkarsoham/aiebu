@@ -30,7 +30,7 @@ public:
     aie2_dpu_blob,
     aie2ps_asm,
     aie2_asm,
-    config,
+    aie2_config,
     aie4_asm,
     aie2ps_config,
     aie4_config

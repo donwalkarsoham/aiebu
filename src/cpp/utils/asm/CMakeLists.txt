@@ -22,13 +22,14 @@ target_include_directories(aiebu_asm_objects
   ${AIEBU_SOURCE_DIR}/src/cpp/common
   ${AIEBU_SOURCE_DIR}/src/cpp/utils/target
   ${AIEBU_SOURCE_DIR}/src/cpp/cxxopts/include
-  ${AIEBU_BINARY_DIR}/lib/gen
+  ${AIEBU_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}/gen
   )
 
 add_executable(aiebu-asm $<TARGET_OBJECTS:aiebu_asm_objects>)
 target_link_libraries(aiebu-asm PRIVATE aiebu_static)
 
 if (${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+  target_link_libraries(aiebu-asm PRIVATE pthread)
   target_link_options(aiebu-asm PRIVATE "-static")
   set_target_properties(aiebu-asm PROPERTIES INSTALL_RPATH "" BUILD_RPATH "")
 
@@ -50,5 +51,7 @@ add_custom_target(asm_check_dynamic_deps ALL
 
 install(TARGETS aiebu-asm
   RUNTIME DESTINATION ${AIEBU_INSTALL_BIN_DIR}
-  CONFIGURATIONS Debug Release COMPONENT Runtime
-)
+  CONFIGURATIONS Debug Release
+  COMPONENT ${AIEBU_COMPONENT}
+  )
+

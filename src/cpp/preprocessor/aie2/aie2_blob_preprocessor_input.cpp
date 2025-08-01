@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2025, Advanced Micro Devices, Inc. All rights reserved.
 
 #include <filesystem>
+#include "file_utils.h"
 #include "aie2_blob_preprocessor_input.h"
 #include "xaiengine.h"
 
@@ -206,8 +207,7 @@ add_preemption_code(uint32_t col)
   void
   aie2_blob_preprocessor_input::
   extract_coalesed_buffers(const std::string& name,
-                           const boost::property_tree::ptree& pt,
-                           const std::string& instance_id)
+                           const boost::property_tree::ptree& pt)
   {
     uint32_t buffer_size = get_32_bit_property(pt, "size_in_bytes");
     const auto coalesed_buffers_pt = pt.get_child_optional("coalesed_buffers");
@@ -221,7 +221,7 @@ add_preemption_code(uint32_t col)
       // Check if the buffer offset is within the buffer size
       validate_json(buffer_offset, buffer_size, arg_index, offset_type::COALESED_BUFFER);
       // extract control packet patch
-      extract_control_packet_patch(name, arg_index, coalesed_buffer.second, instance_id);
+      extract_control_packet_patch(name, arg_index, coalesed_buffer.second);
     }
   }
 
@@ -229,35 +229,31 @@ add_preemption_code(uint32_t col)
   aie2_blob_preprocessor_input::
   extract_control_packet_patch(const std::string& name,
                                uint32_t arg_index,
-                               const boost::property_tree::ptree& pt,
-                               const std::string& instance_id)
+                               const boost::property_tree::ptree& pt)
   {
     const uint32_t addend = get_32_bit_property(pt, "offset_in_bytes", true);
     const auto control_packet_patch_pt = pt.get_child_optional("control_packet_patch_locations");
     if (!control_packet_patch_pt)
       return;
     const auto patchs = control_packet_patch_pt.get();
-    std::string ctrldata_name = ctrl_data;
-    if (!instance_id.empty())
-      ctrldata_name += "." + instance_id;
     for (auto pat : patchs)
     {
       auto patch = pat.second;
-      if (m_data.find(ctrldata_name) == m_data.end())
-        throw error(error::error_code::invalid_asm, "control packet for id " + instance_id + " not present");
-      uint32_t control_packet_size = m_data[ctrldata_name].size();
+      if (m_data.find(ctrl_data) == m_data.end())
+        throw error(error::error_code::invalid_asm, "control packet not present");
+      uint32_t control_packet_size = m_data[ctrl_data].size();
       uint32_t control_packet_offset = get_32_bit_property(patch, "offset");
       // Check if the control packet offset is within the control packet size
       validate_json(control_packet_offset, control_packet_size, arg_index, offset_type::CONTROL_PACKET);
       // move 8 bytes(header) up for unifying the patching scheme between DPU sequence and transaction-buffer
       uint32_t offset = control_packet_offset - 8;
-      add_symbol({name, offset, 0, 0, addend, 0, ctrldata_name, symbol::patch_schema::control_packet_48});
+      add_symbol({name, offset, 0, 0, addend, 0, ctrl_data, symbol::patch_schema::control_packet_48});
     }
   }
 
   void
   aie2_blob_preprocessor_input::
-  aiecompiler_json_parser(const boost::property_tree::ptree& pt, const std::string& instance_id)
+  aiecompiler_json_parser(const boost::property_tree::ptree& pt)
   {
     const auto pt_external_buffers = pt.get_child_optional("external_buffers");
     if (!pt_external_buffers)
@@ -276,9 +272,9 @@ add_preemption_code(uint32_t col)
         xrt_id_map.insert({arg, name});
 
       if (pt_coalesed_buffers)
-        extract_coalesed_buffers(name, external_buffer.second, instance_id);
+        extract_coalesed_buffers(name, external_buffer.second);
       else
-        extract_control_packet_patch(name, arg, external_buffer.second, instance_id);
+        extract_control_packet_patch(name, arg, external_buffer.second);
     }
   }
 
@@ -327,7 +323,7 @@ add_preemption_code(uint32_t col)
 
   void
   aie2_blob_preprocessor_input::
-  readmetajson(std::istream& patch_json, const std::string& instance_id)
+  readmetajson(std::istream& patch_json)
   {
     boost::property_tree::ptree pt;
     boost::property_tree::read_json(patch_json, pt);
@@ -335,7 +331,7 @@ add_preemption_code(uint32_t col)
     const auto aiecompiler_json = pt.get_child_optional("external_buffers");
     if (aiecompiler_json)
     {
-      aiecompiler_json_parser(pt, instance_id);
+      aiecompiler_json_parser(pt);
       return;
     }
 
@@ -438,7 +434,7 @@ add_preemption_code(uint32_t col)
         case XAIE_IO_LOADPDI: {
           auto lp_header = reinterpret_cast<const XAie_LoadPdiHdr *>(ptr);
           std::string pdiname = get_pdi_name(lp_header->PdiId);
-          if (m_data.find(pdiname) == m_data.end())
+          if (std::find(pdi_id_list.begin(), pdi_id_list.end(), pdiname) == pdi_id_list.end())
             throw error(error::error_code::invalid_asm, "pdi for id " + pdiname + " not present");
           add_symbol({pdiname, static_cast<uint32_t>(reinterpret_cast<const char*>(&(lp_header->PdiAddress))-mc_code.data()),
                       0, 0, 0, lp_header->PdiSize, section_name, symbol::patch_schema::address_64});
@@ -610,7 +606,7 @@ add_preemption_code(uint32_t col)
         case XAIE_IO_LOADPDI: {
           auto lp_header = reinterpret_cast<const XAie_LoadPdiHdr *>(ptr);
           std::string pdiname = get_pdi_name(lp_header->PdiId);
-          if (m_data.find(pdiname) == m_data.end())
+          if (std::find(pdi_id_list.begin(), pdi_id_list.end(), pdiname) == pdi_id_list.end())
             throw error(error::error_code::invalid_asm, "pdi for id " + pdiname + " not present");
           add_symbol({pdiname, static_cast<uint32_t>(reinterpret_cast<const char*>(&(lp_header->PdiAddress))-mc_code.data()),
                       0, 0, 0, lp_header->PdiSize, section_name, symbol::patch_schema::address_64});
@@ -957,42 +953,50 @@ add_preemption_code(uint32_t col)
 
 
   void
-  config_preprocessor_input::
-  add_pdi(const boost::property_tree::ptree& pdis)
+  aie2_config_preprocessor_input::
+  add_pdi(const std::string& kernel, const boost::property_tree::ptree& pdis, const std::vector<std::string>& paths)
   {
     for (const auto& [unused, pdi] : pdis)
-      m_data[std::string(".pdi.") + pdi.get<std::string>("id")] = std::move(readfile(pdi.get<std::string>("PDI_file")));
-  }
-
-  void
-  config_preprocessor_input::
-  add_instance(const boost::property_tree::ptree& pinstance)
-  {
-    for (const auto& [unused, pic] : pinstance)
     {
-      std::string tname = get_ctrltext_name(pic.get<std::string>("id"));
-      m_data[tname] = std::move(readfile(pic.get<std::string>("TXN_ctrl_code_file")));
-      //std::cout << "TXN_ctrl_code_file id:" << pic.get<std::string>("id") << std::endl;
-      //std::cout << "TXN_ctrl_code_file:" << pic.get<std::string>("TXN_ctrl_code_file") << std::endl;
-      if (!pic.get<std::string>("ctrl_packet_file", "").empty())
-        m_data[get_ctrldata_name(pic.get<std::string>("id"))] = std::move(readfile(pic.get<std::string>("ctrl_packet_file")));
-
-      if (!pic.get<std::string>("patch_info_file", "").empty())
+      uint32_t id = pdi.get<uint32_t>("id");
+      auto type = pdi.get_optional<std::string>("type");
+      if (type && !type.get().compare(pm_ctrlpkt_type))
       {
-        std::vector<char> jdata = readfile(pic.get<std::string>("patch_info_file"));
-        vector_streambuf vsb(jdata);
-        std::istream elf_stream(&vsb);
-        readmetajson(elf_stream, pic.get<std::string>("id"));
+        kernel_map[kernel].add_common_data(get_pmctrlpkt_name(id), readfile(pdi.get<std::string>("PDI_file"), paths));
+        kernel_map[kernel].add_pm_id(id);
+      } else {
+        kernel_map[kernel].add_common_data(get_pdi_name(id), readfile(pdi.get<std::string>("PDI_file"), paths));
+        kernel_map[kernel].add_pdi_id(get_pdi_name(id));
       }
-      // col is used to add corrosponding save/restore control code
-      col = extractSymbolFromBuffer(m_data[tname], tname, "");
-      xrt_id_map.clear();
     }
   }
 
   void
-  config_preprocessor_input::
-  readconfigjson(std::istream& patch_json)
+  aie2_config_preprocessor_input::
+  add_instance(const std::string& kernel, const boost::property_tree::ptree& pinstance, const std::vector<std::string>& paths)
+  {
+    for (const auto& [unused, pic] : pinstance)
+    {
+      std::string tname = pic.get<std::string>("id");
+      //m_data[tname] = std::move(readfile(pic.get<std::string>("TXN_ctrl_code_file")));
+      auto txn_code = readfile(pic.get<std::string>("TXN_ctrl_code_file"), paths);
+      std::vector<char> ctrl_pkt_code;
+      if (!pic.get<std::string>("ctrl_packet_file", "").empty())
+        ctrl_pkt_code = readfile(pic.get<std::string>("ctrl_packet_file"), paths);
+
+      std::vector<char> jdata;
+      if (!pic.get<std::string>("patch_info_file", "").empty())
+        jdata = readfile(pic.get<std::string>("patch_info_file"), paths);
+
+      auto instance = std::make_shared<aie2_blob_transaction_preprocessor_input>();
+      kernel_map[kernel].add_instance(tname, instance);
+      instance->set_args(txn_code, jdata, ctrl_pkt_code, {}, {}, kernel_map[kernel].get_pm_id_list(), kernel_map[kernel].get_pdi_id_list());
+    }
+  }
+
+  void
+  aie2_config_preprocessor_input::
+  readconfigjson(std::istream& patch_json, const std::vector<std::string>& paths)
   {
     boost::property_tree::ptree pt;
     boost::property_tree::read_json(patch_json, pt);
@@ -1016,12 +1020,11 @@ add_preemption_code(uint32_t col)
       }
       std::string mangled_name = mangle_function_name(func);
       //std::cout << "Mangled Function Name: " << mangled_name << std::endl;
-      add_metadata("kernel.signature", mangled_name);
 
       const auto& pt_pdis = ctrlcode.get_child_optional("PDIs");
       if (pt_pdis) {
         const auto& pdis = pt_pdis.get();
-        add_pdi(pdis);
+        add_pdi(mangled_name, pdis, paths);
       } else {
         std::cout << "PDIs not found\n";
       }
@@ -1029,7 +1032,7 @@ add_preemption_code(uint32_t col)
       const auto& pt_instance = ctrlcode.get_child_optional("instance");
       if (pt_instance) {
         const auto& pinstance = pt_instance.get();
-        add_instance(pinstance);
+        add_instance(mangled_name, pinstance, paths);
       } else {
         std::cout << "instance not found\n";
       }

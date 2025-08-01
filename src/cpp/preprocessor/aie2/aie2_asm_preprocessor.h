@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (C) 2024, Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (C) 2024-2025, Advanced Micro Devices, Inc. All rights reserved.
 
 #ifndef _AIEBU_PREPROCESSOR_AIE2_ASM_PREPROCESSOR_H_
 #define _AIEBU_PREPROCESSOR_AIE2_ASM_PREPROCESSOR_H_
@@ -24,7 +24,7 @@ public:
     auto rinput = std::static_pointer_cast<aie2_asm_preprocessor_input>(input);
     // Behave the same way as aie2_blob_preprocessor::process()
     // TODO: explore if this process() can simply call the other process().
-    auto routput = std::make_shared<aie2_blob_preprocessed_output>();
+    auto routput = std::make_shared<aie2_blob_preprocessed_output>(rinput->get_partition_info());
 
     for(auto key : rinput->get_keys())
       routput->add_data(key, transform(rinput->get_data(key)));

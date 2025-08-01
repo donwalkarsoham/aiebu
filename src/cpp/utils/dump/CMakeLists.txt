@@ -24,6 +24,7 @@ add_executable(aiebu-dump $<TARGET_OBJECTS:aiebu_dump_objects>)
 target_link_libraries(aiebu-dump PRIVATE aiebu_static)
 
 if (${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+  target_link_libraries(aiebu-dump PRIVATE pthread)
   target_link_options(aiebu-dump PRIVATE "-static")
   set_target_properties(aiebu-dump PROPERTIES INSTALL_RPATH "" BUILD_RPATH "")
 
@@ -45,5 +46,6 @@ add_custom_target(dump_check_dynamic_deps ALL
 
 install(TARGETS aiebu-dump
   RUNTIME DESTINATION ${AIEBU_INSTALL_BIN_DIR}
-  CONFIGURATIONS Debug Release COMPONENT Runtime
-)
+  CONFIGURATIONS Debug Release
+  COMPONENT ${AIEBU_COMPONENT}
+  )

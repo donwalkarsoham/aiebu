@@ -27,7 +27,6 @@ class section_writer: public writer
   const code_section m_type;
   std::vector<uint8_t> m_data;
   std::vector<symbol> m_symbols;
-  std::unordered_map<std::string, std::string> m_metadata;
 
 public:
   section_writer(std::string name, code_section type, std::vector<uint8_t>&& data)
@@ -97,17 +96,56 @@ public:
   }
 
   void padding(offset_type size);
+};
 
-  void add_metadata(std::unordered_map<std::string, std::string>&& metadata)
+class instance_writer
+{
+  // map<instance, vector<section_writer object having code and symbol info>>
+  std::map<std::string, std::vector<std::shared_ptr<writer>>> m_instance;
+  std::vector<std::shared_ptr<writer>> m_common;
+public:
+  const std::map<std::string, std::vector<std::shared_ptr<writer>>>& get_instance_map() const
   {
-    m_metadata = std::move(metadata);
+    return m_instance;
   }
 
-  std::string&
-  get_metadata(const std::string& key)
+  const std::vector<std::shared_ptr<writer>>& get_common() const
   {
-    return m_metadata[key];
+    return m_common;
   }
+
+  void add_instance(const std::string& instance, std::vector<std::shared_ptr<writer>> val)
+  {
+    m_instance[instance] = std::move(val);
+  }
+
+  void add_common_data(std::shared_ptr<writer> val)
+  {
+    m_common.emplace_back(val);
+  }
+};
+
+class aie2_config_writer: public writer
+{
+  // map<kernel, instance_writer>
+  std::map<std::string, instance_writer> m_output;
+  std::shared_ptr<const partition_info> m_partition;
+
+public:
+  explicit aie2_config_writer(std::shared_ptr<const partition_info> partition): m_partition(std::move(partition)) {}
+
+  const std::map<std::string, instance_writer>&
+  get_kernel_map() const { return m_output; }
+
+  void add_kernel_map(const std::string& kernel, const std::string& instance, std::vector<std::shared_ptr<writer>> val) {
+    m_output[kernel].add_instance(instance, std::move(val));
+  }
+
+  void add_kernel_common_data(const std::string& kernel, std::shared_ptr<writer> val) {
+    m_output[kernel].add_common_data(val);
+  }
+
+  std::shared_ptr<const partition_info> get_partition_info() const { return m_partition; }
 };
 
 class config_writer: public writer

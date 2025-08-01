@@ -271,11 +271,12 @@ target_aie2ps::assemble(const sub_cmd_options &options)
 
 void
 aiebu::utilities::
-target_config::assemble(const sub_cmd_options &options)
+target_aie2_config::assemble(const sub_cmd_options &options)
 {
   std::string output_elffile;
   std::string json_file;
-  cxxopts::Options all_options("Target config Options", m_description);
+  std::vector<std::string> libpaths;
+  cxxopts::Options all_options("Target aie2 config Options", m_description);
 
   try {
     all_options.add_options()
@@ -290,7 +291,7 @@ target_config::assemble(const sub_cmd_options &options)
     auto result = all_options.parse(static_cast<int>(char_ver.size()), char_ver.data());
 
     if (result.count("help")) {
-      std::cout << all_options.help({"", "Target config Options"});
+      std::cout << all_options.help({"", "Target aie2 config Options"});
       return;
     }
 
@@ -310,10 +311,13 @@ target_config::assemble(const sub_cmd_options &options)
 
   std::vector<char> json_buffer;
   if (!json_file.empty())
+  {
     readfile(json_file, json_buffer);
+    libpaths.push_back(get_parent_directory(json_file));
+  }
 
   try {
-    aiebu::aiebu_assembler as(aiebu::aiebu_assembler::buffer_type::config, {}, {}, {}, json_buffer);
+    aiebu::aiebu_assembler as(aiebu::aiebu_assembler::buffer_type::aie2_config, {}, {}, libpaths, json_buffer);
     write_elf(as, output_elffile);
   }
   catch (aiebu::error &ex) {
