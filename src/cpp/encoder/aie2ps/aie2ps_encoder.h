@@ -39,7 +39,7 @@ public:
   virtual void patch57(const std::shared_ptr<section_writer> textwriter, std::shared_ptr<section_writer> datawriter, offset_type offset, uint64_t patch);
   void fill_scratchpad(std::shared_ptr<section_writer> padwriter,const std::map<std::string, std::shared_ptr<scratchpad_info>>& scratchpads);
   void fill_controlpkt(std::shared_ptr<section_writer> padwriter, const std::vector<char>& ctrlpkt);
-  void fill_control_packet_symbols(std::shared_ptr<section_writer> ctrlpktwriter, std::vector<symbol>& syms);
+  void fill_control_packet_symbols(std::shared_ptr<section_writer> ctrlpktwriter, const std::vector<symbol>& syms);
  
   std::string findKey(const std::map<std::string, std::vector<std::string>>& myMap, const std::string& value);
 

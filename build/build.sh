@@ -15,6 +15,7 @@ CMAKE_MAJOR_VERSION=`cmake --version | head -n 1 | awk '{print $3}' |awk -F. '{p
 CPU=`uname -m`
 here=$PWD
 run_memtest="no"
+run_test="yes"
 
 function compile {
     local config=$1
@@ -31,20 +32,24 @@ function compile {
     cmake -B $BUILDDIR/$config $cmakeflags $BUILDDIR/..
     cmake --build $BUILDDIR/$config --config $config --verbose -j $CORE
     cmake --install $BUILDDIR/$config --config $config --prefix $BUILDDIR/$config/opt/xilinx/aiebu
-    cmake --build $BUILDDIR/$config --config $config --target test -j $CORE
 
-    if [[ $run_memtest == "yes" ]]; then
-        cmake --build $BUILDDIR/$config --target test -j $CORE -- ARGS="-L memcheck -T memcheck"
+    if [[ $run_test == "yes" ]]; then
+        cmake --build $BUILDDIR/$config --config $config --target test -j $CORE
+
+        if [[ $run_memtest == "yes" ]]; then
+            cmake --build $BUILDDIR/$config --target test -j $CORE -- ARGS="-L memcheck -T memcheck"
+        fi
     fi
+
     if [[ $config == "Release" ]]; then
         cmake --build $BUILDDIR/$config --config $config --target package --verbose -j $CORE
     fi
 }
 
 build_python="yes"
-usage() { echo "Usage: $0 [-ph]" 1>&2; exit 1; }
+usage() { echo "Usage: $0 [-pth]" 1>&2; exit 1; }
 
-while getopts ":rph" o; do
+while getopts ":rtph" o; do
     case "${o}" in
         p)
             build_python="yes"
@@ -52,6 +57,9 @@ while getopts ":rph" o; do
 	m)
 	    run_memtest="yes"
 	    ;;
+        t)
+            run_test="no"
+            ;;
         h)
             usage
             ;;

@@ -47,6 +47,15 @@ public:
 
   virtual void write_word(uint32_t word);
 
+  // Bulk write methods for better performance
+  template <typename T> void
+  write_bytes(const T &bytes)
+  {
+    m_data.insert(m_data.end(), bytes.begin(), bytes.end());
+  }
+
+  virtual void reserve(size_t capacity);
+
   virtual uint32_t read_word(offset_type offset) const;
 
   virtual void write_word_at(offset_type offset, uint32_t word);

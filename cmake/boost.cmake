@@ -4,15 +4,17 @@ if(POLICY CMP0144)
   cmake_policy(SET CMP0144 NEW)
 endif()
 
-# We use header only libraries
+# We use header only libraries for most components
+# Boost.Regex is header-only from 1.76.0+ (when using C++11 or later)
+# Require minimum Boost 1.76.0 for header-only Boost.Regex support
 if(${CMAKE_VERSION} VERSION_LESS "3.30")
-  find_package(Boost REQUIRED)
+  find_package(Boost 1.76.0 REQUIRED)
 else()
-  find_package(Boost CONFIG REQUIRED)
+  find_package(Boost 1.76.0 CONFIG REQUIRED)
 endif()
 
 message("-- Boost version: ${Boost_VERSION}")
-message("-- Boost include dir:${Boost_INCLUDE_DIRS}")
+message("-- Boost include dir: ${Boost_INCLUDE_DIRS}")
 
 # Some later versions of boost spews warnings form property_tree
 # but can be disabled with this setting

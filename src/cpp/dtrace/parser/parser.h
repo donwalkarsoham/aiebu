@@ -48,6 +48,7 @@ enum class state_type
     action = 2,
     action_close = 3,
     buffer_open = 4,
+    operation_block = 5
 };
 
 //-------------------------Parser-------------------------//
@@ -78,13 +79,15 @@ private:
     int m_position;
     std::unordered_map<std::string, boost::property_tree::ptree> m_maps;
     std::string m_write_buffer;
-    std::unordered_map<std::string, std::vector<uint32_t>> m_buffer_map;
+    // std::unordered_map<std::string, std::vector<uint32_t>> m_buffer_map;
+    std::unordered_map<std::string, std::pair<std::vector<uint32_t>, std::vector<uint32_t>>> m_buffer_map;
     std::vector<int> get_list(const std::string& token) const;
     std::pair<int, int> lookup_control_code_location(const std::string& probe_name) const;
     void expand_profile(uint32_t probe_type, const std::string& probe_name);
     void expand_jprobe(uint32_t probe_type, const std::string& probe_name);
     void expand_tracepoint(uint32_t probe_type, const std::string& probe_name);
     void expand_write_buffer(const std::string& write_buffer);
+    void expand_init_buffer(const std::string& init_buffer);
     void probe_add_action(uint32_t probe_type, const std::string& probe_name, 
         const std::string& action);
     std::shared_ptr<dtrace::action::action> create_action(
@@ -95,7 +98,6 @@ public:
     parser(const std::string& map_data);
     std::unordered_map<uint32_t, std::map<std::string, std::shared_ptr<dtrace::probe::probe>>> m_probes;
     std::unordered_map<uint32_t, std::vector<std::string>> m_probe_order;
-    std::unordered_map<uint32_t, std::vector<std::shared_ptr<dtrace::action::action>>> m_actions;
     std::set<uint32_t> m_uC_indices;
     void parse_line(const std::string& parse_line);
     std::unordered_map<uint32_t, uint64_t> m_mem_host_addr_map; 

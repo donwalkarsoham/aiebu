@@ -130,14 +130,13 @@ parse_lines(const std::vector<char>& data, std::string& file)
     if(line.empty())
       continue;
 
-    if (boost::regex_match(line, COMMENT_REGEX))
+    if (line[0] == ';') //boost::regex_match(line, COMMENT_REGEX))
       continue;
 
     boost::smatch sm;
 
-    // Check for Directive
-    boost::regex_match(line, sm, DIRCETIVE_REGEX);
-    if (operate_directive(line))
+    // Check for Directive (starts with .) - only check regex if prefix matches
+    if (line[0] == '.' && operate_directive(line))
     {
       if (!get_annotation_state())
         continue;
@@ -163,8 +162,8 @@ parse_lines(const std::vector<char>& data, std::string& file)
       continue;
     }
 
-    // check for label
-    if (boost::regex_match(line, sm, LABEL_REGEX))
+    // check for label - fast check for ':' at end before regex
+    if (line.back() == ':' && boost::regex_match(line, sm, LABEL_REGEX))
     {
       if (!get_data_state())
         m_current_label = m_current_label + ":" + sm[1].str();

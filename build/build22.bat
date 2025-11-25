@@ -57,9 +57,12 @@ IF DEFINED MSVC_PARALLEL_JOBS ( SET LOCAL_MSVC_PARALLEL_JOBS=%MSVC_PARALLEL_JOBS
   if [%1] == [-nocmake] (
     set NOCMAKE=1
   ) else (
+  if [%1] == [-noctest] (
+    set NOCTEST=1
+  ) else (
     echo Unknown option: %1
     goto Help
-  )))))))))))
+  ))))))))))))
   shift
   goto parseArgs
 
@@ -88,9 +91,11 @@ if [%DEBUG%] == [1] (
    cmake --install %BUILDDIR%\%PLATFORM% --config Debug --prefix %BUILDDIR%\%PLATFORM%\Debug\xilinx\aiebu --verbose
    if errorlevel 1 (exit /B %errorlevel%)
 
-   echo cmake --build %BUILDDIR%\%PLATFORM% --config Debug --target run_tests -j %LOCAL_MSVC_PARALLEL_JOBS%
-   cmake --build %BUILDDIR%\%PLATFORM% --config Debug --target run_tests -j %LOCAL_MSVC_PARALLEL_JOBS%
-   if errorlevel 1 (exit /B %errorlevel%)
+   if [%NOCTEST%] == [0] (
+      echo cmake --build %BUILDDIR%\%PLATFORM% --config Debug --target run_tests -j %LOCAL_MSVC_PARALLEL_JOBS%
+      cmake --build %BUILDDIR%\%PLATFORM% --config Debug --target run_tests -j %LOCAL_MSVC_PARALLEL_JOBS%
+      if errorlevel 1 (exit /B %errorlevel%)
+   )
 )
 
 if [%RELEASE%] == [1] (
@@ -102,9 +107,11 @@ if [%RELEASE%] == [1] (
    cmake --install %BUILDDIR%\%PLATFORM% --config Release --prefix %BUILDDIR%\%PLATFORM%\Release\xilinx\aiebu --verbose
    if errorlevel 1 (exit /B %errorlevel%)
 
-   echo cmake --build %BUILDDIR%\%PLATFORM% --config Release --target run_tests -j %LOCAL_MSVC_PARALLEL_JOBS%
-   cmake --build %BUILDDIR%\%PLATFORM% --config Release --target run_tests -j %LOCAL_MSVC_PARALLEL_JOBS%
-   if errorlevel 1 (exit /B %errorlevel%)
+   if [%NOCTEST%] == [0] (
+      echo cmake --build %BUILDDIR%\%PLATFORM% --config Release --target run_tests -j %LOCAL_MSVC_PARALLEL_JOBS%
+      cmake --build %BUILDDIR%\%PLATFORM% --config Release --target run_tests -j %LOCAL_MSVC_PARALLEL_JOBS%
+      if errorlevel 1 (exit /B %errorlevel%)
+   )
 
    ECHO ====================== Create SDK ZIP archive ============================
    echo cpack -G ZIP -B %BUILDDIR%\%PLATFORM% -C Release --config %BUILDDIR%\%PLATFORM%\CPackConfig.cmake
@@ -133,6 +140,7 @@ ECHO [-opt]                     - Creates a release build
 ECHO [-package]                 - Packages the release build to a MSI archive.
 ECHO [-r]                       - build only aie2
 ECHO [-p]                       - build python assembler also
+ECHO [-noctest]                 - run no test during build
 ECHO                              Note: Depends on the WIX application.
 GOTO:EOF
 
