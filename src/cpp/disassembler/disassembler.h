@@ -49,13 +49,16 @@ protected:
                            std::shared_ptr<disassembler_state> state);
     void process_data_block(const char* data, size_t size, 
                            std::shared_ptr<disassembler_state> state);
+    
+    // Create architecture-specific disassembler state
+    [[nodiscard]] std::shared_ptr<disassembler_state> create_disassembler_state() const;
 };
 
 // ELF disassembler - handles ELF file format
 class elf_asm_disassembler : public asm_disassembler {
 public:
     // Constructor for ELF input files
-    elf_asm_disassembler(const std::string& input_elf_path, std::ostream& output_stream);
+    elf_asm_disassembler(const std::string& input_elf_path, std::ostream& output_stream, const std::string& target_arch = "");
     
     void run() override;
 

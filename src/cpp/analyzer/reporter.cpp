@@ -127,12 +127,15 @@ namespace aiebu {
                 stream << tprint.get_all_ops() << std::endl;
             }
         }
-        else if (m_buffer_type == aiebu::aiebu_assembler::buffer_type::blob_instr_transaction) {
+        else if (m_buffer_type == aiebu::aiebu_assembler::buffer_type::blob_instr_transaction ||
+                 m_buffer_type == aiebu::aiebu_assembler::buffer_type::blob_aie2ps ||
+                 m_buffer_type == aiebu::aiebu_assembler::buffer_type::blob_aie4) {
             disassemble_blob(root);
         }
-        else if (m_buffer_type == aiebu::aiebu_assembler::buffer_type::elf_aie2ps ) {
+        else if (m_buffer_type == aiebu::aiebu_assembler::buffer_type::elf_aie2ps ||
+                 m_buffer_type == aiebu::aiebu_assembler::buffer_type::elf_aie4) {
             try {
-                aiebu::elf_asm_disassembler disasm(root.string(), std::cout);
+                aiebu::elf_asm_disassembler disasm(root.string(), std::cout, get_target_arch());
                 disasm.run();
             } catch (const std::exception& ex) {
                 throw error(error::error_code::internal_error,

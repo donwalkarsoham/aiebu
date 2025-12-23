@@ -29,6 +29,29 @@ namespace aiebu {
         {
           return !name.substr(0,8).compare(".ctrlpkt");
         }
+
+        // Derive target architecture string from buffer_type
+        [[nodiscard]] inline std::string get_target_arch() const
+        {
+          switch (m_buffer_type) {
+            case aiebu::aiebu_assembler::buffer_type::elf_aie4:
+            case aiebu::aiebu_assembler::buffer_type::elf_aie4_config:
+            case aiebu::aiebu_assembler::buffer_type::asm_aie4:
+            case aiebu::aiebu_assembler::buffer_type::aie4_config:
+            case aiebu::aiebu_assembler::buffer_type::blob_aie4:
+              return "aie4";
+            case aiebu::aiebu_assembler::buffer_type::elf_aie2ps:
+            case aiebu::aiebu_assembler::buffer_type::elf_aie2ps_config:
+            case aiebu::aiebu_assembler::buffer_type::asm_aie2ps:
+            case aiebu::aiebu_assembler::buffer_type::aie2ps_config:
+            case aiebu::aiebu_assembler::buffer_type::pdi_aie2ps:
+            case aiebu::aiebu_assembler::buffer_type::blob_aie2ps:
+              return "aie2ps";
+            default:
+              return "aie2ps";  // Default to aie2ps
+          }
+        }
+
     public:
         // Constructor
         reporter(aiebu::aiebu_assembler::buffer_type type, const std::vector<char>& buffer);

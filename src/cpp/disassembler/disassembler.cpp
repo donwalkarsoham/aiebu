@@ -46,6 +46,15 @@ asm_disassembler::asm_disassembler(std::ostream& output_stream)
     isa_op_map = isa_disasm.get_isa_map();
 }
 
+// Create architecture-specific disassembler state
+std::shared_ptr<disassembler_state> asm_disassembler::create_disassembler_state() const {
+    if (m_target_arch == "aie4") {
+        return std::make_shared<disassembler_state_aie4>();
+    }
+    // Default to aie2ps for aie2ps, aie2, aie2p, or unknown architectures
+    return std::make_shared<disassembler_state>();
+}
+
 // Common helper to write text section header
 void asm_disassembler::add_text_sec_comment() {
     m_asm_writer.write_directive("");
@@ -136,14 +145,19 @@ void asm_disassembler::process_data_block(const char* data, size_t size,
 }
 
 // ELF disassembler constructor
-elf_asm_disassembler::elf_asm_disassembler(const std::string& input_elf_path, std::ostream& output_stream)
+elf_asm_disassembler::elf_asm_disassembler(const std::string& input_elf_path, std::ostream& output_stream, const std::string& target_arch)
     : asm_disassembler(output_stream) {
     if (!m_elf_reader.load(input_elf_path)) {
         throw error(error::error_code::invalid_elf, "Failed to load ELF:" + input_elf_path + "\n");
     }
-    // Set target architecture from ELF header (EI_OSABI)
-    // For now, default to aie2ps; future: extract from ELF header byte 7
-    m_target_arch = "aie2ps";
+    // Set target architecture from parameter or default to aie2ps
+    // Note: AIE4 and AIE2PS use the same OS ABI, so we can't distinguish them from ELF header alone
+    if (!target_arch.empty() && target_arch != "unspecified") {
+        m_target_arch = target_arch;
+    } else {
+        // Default to aie2ps if not specified
+        m_target_arch = "aie2ps";
+    }
 }
 
 // ELF disassembler run method
@@ -191,7 +205,7 @@ void bin_asm_disassembler::run() {
 }
 
 void elf_asm_disassembler::process_sections() {
-    auto state = std::make_shared<disassembler_state>();
+    auto state = create_disassembler_state();
     for (const auto& section_ptr : m_elf_reader.sections) {
         const ELFIO::section* section = section_ptr.get();
         const std::string section_name = section->get_name();
@@ -282,7 +296,7 @@ void bin_asm_disassembler::process_binary() {
                              (cur_page_len - page_header_size) : 0;
         
         // Process this page
-        auto state = std::make_shared<disassembler_state>();
+        auto state = create_disassembler_state();
         
         if (content_size > 0) {
             process_binary_data(m_binary_data.data() + offset + page_header_size, 

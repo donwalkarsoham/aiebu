@@ -74,7 +74,7 @@ public:
     }
 
     // FOR AIE2PS
-    std::string to_actor(uint32_t val, uint32_t tile) {
+    virtual std::string to_actor(uint32_t val, uint32_t tile) {
         uint32_t row = tile & 0x1F;  //NOLINT
 
         if (row == 0) {  //NOLINT
@@ -115,6 +115,66 @@ public:
             case 7: return "TILE_MM2S_1"; //NOLINT
             case 15: return "TILE_CORE"; //NOLINT
             default: throw error(error::error_code::invalid_asm, "Invalid Core tile actor:" + std::to_string(val) + "\n");
+          }
+        }
+    }
+};
+
+// AIE4-specific disassembler state with extended actor ID mappings
+class disassembler_state_aie4 : public disassembler_state {
+public:
+    std::string to_actor(uint32_t val, uint32_t tile) override {
+        uint32_t row = tile & 0x1F;  //NOLINT
+
+        if (row == 0) {  //NOLINT
+          // SHIM TILE - AIE4 has more channels + control channels
+          switch(val)
+          {
+            case 0: return "SHIM_S2MM_0"; //NOLINT
+            case 1: return "SHIM_TRACE_S2MM"; //NOLINT - AIE4 specific
+            case 2: return "SHIM_S2MM_1"; //NOLINT
+            case 6: return "SHIM_MM2S_0"; //NOLINT
+            case 7: return "SHIM_MM2S_1"; //NOLINT
+            case 8: return "SHIM_MM2S_2"; //NOLINT - AIE4 specific
+            case 9: return "SHIM_MM2S_3"; //NOLINT - AIE4 specific
+            case 16: return "SHIM_CTRL_MM2S_0"; //NOLINT - AIE4 specific
+            case 17: return "SHIM_CTRL_MM2S_1"; //NOLINT - AIE4 specific
+            default: throw error(error::error_code::invalid_asm, "Invalid AIE4 Shim tile actor:" + std::to_string(val) + "\n");
+          }
+        }
+        else if (row == 1 || row == 2) { //NOLINT
+          // MEM TILE - AIE4 has more channels (0-7 for S2MM, 16-26 for MM2S)
+          switch(val)
+          {
+            case 0: return "MEM_S2MM_0"; //NOLINT
+            case 1: return "MEM_S2MM_1"; //NOLINT
+            case 2: return "MEM_S2MM_2"; //NOLINT
+            case 3: return "MEM_S2MM_3"; //NOLINT
+            case 4: return "MEM_S2MM_4"; //NOLINT
+            case 5: return "MEM_S2MM_5"; //NOLINT
+            case 6: return "MEM_S2MM_6"; //NOLINT - AIE4 specific
+            case 7: return "MEM_S2MM_7"; //NOLINT - AIE4 specific
+            case 16: return "MEM_MM2S_0"; //NOLINT - AIE4 different offset
+            case 17: return "MEM_MM2S_1"; //NOLINT - AIE4 different offset
+            case 18: return "MEM_MM2S_2"; //NOLINT - AIE4 different offset
+            case 19: return "MEM_MM2S_3"; //NOLINT - AIE4 different offset
+            case 20: return "MEM_MM2S_4"; //NOLINT - AIE4 specific
+            case 22: return "MEM_MM2S_5"; //NOLINT - AIE4 specific
+            case 23: return "MEM_MM2S_6"; //NOLINT - AIE4 specific
+            case 24: return "MEM_MM2S_7"; //NOLINT - AIE4 specific
+            case 25: return "MEM_MM2S_8"; //NOLINT - AIE4 specific
+            case 26: return "MEM_MM2S_9"; //NOLINT - AIE4 specific
+            default: throw error(error::error_code::invalid_asm, "Invalid AIE4 Mem tile actor:" + std::to_string(val) + "\n");
+          }
+        }
+        else { // CORE TILE - Same as AIE2PS
+          switch(val)
+          {
+            case 0: return "TILE_S2MM_0"; //NOLINT
+            case 1: return "TILE_S2MM_1"; //NOLINT
+            case 6: return "TILE_MM2S_0"; //NOLINT
+            case 15: return "TILE_CORE"; //NOLINT
+            default: throw error(error::error_code::invalid_asm, "Invalid AIE4 Core tile actor:" + std::to_string(val) + "\n");
           }
         }
     }
