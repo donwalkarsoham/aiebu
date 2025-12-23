@@ -2,6 +2,8 @@
 // Copyright (C) 2025 Advanced Micro Devices, Inc. All rights reserved.
 
 #include <cstdint>
+#include <cctype>
+#include <set>
 #include <boost/interprocess/streams/bufferstream.hpp>
 #include <iterator>
 
@@ -62,8 +64,8 @@ load_elf(const std::vector<char>& elf_data)
 
   // Only AIE2PS/AIE4 legacy ELF and group ELF formats are supported
   auto os_abi = m_elfio.get_os_abi();
-  if (os_abi != elf_amd_aie2ps && os_abi != elf_amd_aie2ps_group)
-    throw error(error::error_code::invalid_input, "Only aie2ps/aie4 elf supported\n");
+  if (os_abi != elf_amd_aie2ps_group)
+    throw error(error::error_code::invalid_input, "Only aie2ps/aie4 config elf supported\n");
 }
 
 /**
@@ -515,21 +517,168 @@ set_ctrlpkt_bd_offset(const std::string& section_name, uint32_t offset, uint64_t
 }
 
 /**
+ * @brief Extract kernel name from C++ mangled symbol
+ * @param symbol_name: Mangled symbol name (e.g., "_Z3DPUPcPc")
+ * @return Kernel name if found, empty string otherwise
+ */
+std::string
+transform_manager::
+extract_kernel_name_from_mangled(const std::string& symbol_name) const
+{
+  // Check for C++ mangled name: _Z<length><name>...
+  if (symbol_name.size() <= 3 || symbol_name[0] != '_' || symbol_name[1] != 'Z' || !std::isdigit(symbol_name[2]))
+    return "";
+
+  // Parse the length prefix
+  size_t length_start = 2;
+  size_t length_end = length_start;
+  while (length_end < symbol_name.size() && std::isdigit(symbol_name[length_end])) {
+    length_end++;
+  }
+
+  if (length_end == length_start)
+    return "";
+
+  // Extract and validate the identifier
+  size_t name_length = std::stoul(symbol_name.substr(length_start, length_end - length_start));
+  size_t name_start = length_end;
+  size_t name_end = name_start + name_length;
+
+  if (name_end > symbol_name.size())
+    return "";
+
+  return symbol_name.substr(name_start, name_length);
+}
+
+/**
+ * @brief Get filtered section indices for a kernel:instance filter
+ * @param kernel_instance_filter: Filter in format "kernel:instance" (e.g., "DPU:dpu")
+ * @return Set of section indices that belong to the specified kernel:instance
+ */
+std::set<ELFIO::Elf_Half>
+transform_manager::
+get_filtered_section_indices(const std::string& kernel_instance_filter)
+{
+  // Parse filter
+  size_t delimiter_pos = kernel_instance_filter.find(":");
+  if (delimiter_pos == std::string::npos)
+    throw error(error::error_code::invalid_input,
+                "Invalid filter format. Expected 'kernel:instance', got: " + kernel_instance_filter);
+
+  std::string filter_kernel = kernel_instance_filter.substr(0, delimiter_pos);
+  std::string filter_instance = kernel_instance_filter.substr(delimiter_pos + 1);
+
+  // Get .symtab and .strtab sections
+  auto symtab = m_elfio.sections[".symtab"];
+  auto strtab = m_elfio.sections[".strtab"];
+
+  if (!symtab || !strtab)
+    throw error(error::error_code::internal_error,
+                ".symtab or .strtab not found, required for filtering");
+
+  const auto symtab_size = symtab->get_size();
+  const auto strtab_size = strtab->get_size();
+  const auto sym_count = symtab_size / sizeof(ELFIO::Elf32_Sym);
+
+  // Pass 1: Find FUNC symbols matching the kernel name
+  ELFIO::Elf_Word kernel_symbol_index = 0;
+
+  for (size_t i = 0; i < sym_count; ++i) {
+    auto sym = reinterpret_cast<const ELFIO::Elf32_Sym*>(symtab->get_data() + i * sizeof(ELFIO::Elf32_Sym));
+    unsigned char sym_type = ELF_ST_TYPE(sym->st_info);
+
+    // Skip non-function symbols or invalid names
+    if (sym_type != ELFIO::STT_FUNC || sym->st_name >= strtab_size)
+      continue;
+
+    const char* sym_name = strtab->get_data() + sym->st_name;
+    std::string identifier = extract_kernel_name_from_mangled(sym_name);
+
+    if (identifier == filter_kernel) {
+      kernel_symbol_index = i;
+      break;
+    }
+  }
+
+  if (kernel_symbol_index == 0)
+    throw error(error::error_code::invalid_input,
+                "Kernel '" + filter_kernel + "' not found in .symtab");
+
+  // Pass 2: Find OBJECT symbols matching the instance name
+  ELFIO::Elf_Word instance_symbol_index = 0;
+
+  for (size_t i = 0; i < sym_count; ++i) {
+    auto sym = reinterpret_cast<const ELFIO::Elf32_Sym*>(symtab->get_data() + i * sizeof(ELFIO::Elf32_Sym));
+    unsigned char sym_type = ELF_ST_TYPE(sym->st_info);
+
+    // Skip non-object symbols or invalid names
+    if (sym_type != ELFIO::STT_OBJECT || sym->st_name >= strtab_size)
+      continue;
+
+    const char* sym_name = strtab->get_data() + sym->st_name;
+    if (std::string(sym_name) == filter_instance && sym->st_shndx == kernel_symbol_index) {
+      instance_symbol_index = i;
+      break;
+    }
+  }
+
+  if (instance_symbol_index == 0)
+    throw error(error::error_code::invalid_input,
+                "Instance '" + filter_instance + "' not found for kernel '" + filter_kernel + "'");
+
+
+  // Pass 3: Traverse all sections, find group sections where sh_info points to instance symbol
+  std::set<ELFIO::Elf_Half> section_indices;
+
+  for (const auto& section_ptr : m_elfio.sections) {
+    const ELFIO::section* section = section_ptr.get();
+
+    // Skip non-group sections
+    if (section->get_type() != ELFIO::SHT_GROUP)
+      continue;
+
+    auto group_info = section->get_info();
+
+    // Skip if group doesn't belong to our instance
+    if (group_info != instance_symbol_index)
+      continue;
+
+    // Extract member section indices from group data
+    const auto group_data = reinterpret_cast<const uint32_t*>(section->get_data());
+    const auto group_size = section->get_size();
+    const auto num_entries = group_size / sizeof(uint32_t);
+
+    // Skip first word (flags), read member section indices
+    for (size_t j = 1; j < num_entries; ++j) {
+      section_indices.insert(static_cast<ELFIO::Elf_Half>(group_data[j]));
+    }
+  }
+
+  if (section_indices.empty())
+    throw error(error::error_code::internal_error,
+                "No group sections found for instance '" + filter_instance + "'");
+
+  return section_indices;
+}
+
+/**
  * @brief Extract argument information from ELF relocation sections
+ * @param kernel_instance_filter: Optional filter in format "kernel:instance" (e.g., "DPU:dpu")
  * @return Vector of arginfo containing XRT ID and BD offset pairs
  *
  * This function:
  * 1. Parses .rela.dyn relocations along with .dynsym and .dynstr sections
- * 2. Extracts XRT argument indices from symbol names
- * 3. Reads current buffer descriptor offsets from control code/packet sections
- * 4. Skips special patches (control-code-idx, .ctrlpkt-idx)
- * 5. Returns arginfo for each kernel argument
+ * 2. If filter is specified, uses get_filtered_section_indices() to get allowed sections
+ * 3. Extracts XRT argument indices from symbol names
+ * 4. Reads current buffer descriptor offsets from control code/packet sections
+ * 5. Skips special patches (control-code-idx, .ctrlpkt-idx)
+ * 6. Returns arginfo for each kernel argument
  *
  * The returned vector can be used to inspect or modify argument mappings.
  */
 std::vector<arginfo>
 transform_manager::
-extract_rela_sections()
+extract_rela_sections(const std::string& kernel_instance_filter)
 {
   // Locate required ELF sections
   auto dynsym = m_elfio.sections[".dynsym"];
@@ -538,6 +687,14 @@ extract_rela_sections()
 
   if (!dynsym || !dynstr || !dynsec)
     return {};
+
+  // Get filtered section indices if filter is provided
+  bool has_filter = !kernel_instance_filter.empty();
+  std::set<ELFIO::Elf_Half> allowed_section_indices;
+
+  if (has_filter) {
+    allowed_section_indices = get_filtered_section_indices(kernel_instance_filter);
+  }
 
   const auto dynsym_size = dynsym->get_size();
   const auto dynstr_size = dynstr->get_size();
@@ -574,6 +731,10 @@ extract_rela_sections()
     if (!patch_sec)
       throw error(error::error_code::internal_error, "Invalid section index " + std::to_string(sym->st_shndx));
 
+    // Apply filter: skip if section index doesn't match allowed instances
+    if (has_filter && allowed_section_indices.find(sym->st_shndx) == allowed_section_indices.end())
+      continue;
+
     auto patch_sec_name = patch_sec->get_name();
     auto offset = rela->r_offset;
     auto xrt_id = to_uinteger<uint32_t>(symname);
@@ -597,22 +758,24 @@ extract_rela_sections()
 /**
  * @brief Update ELF with new argument information and regenerate binary
  * @param entries: Vector of arginfo with new XRT indices and BD offsets
+ * @param kernel_instance_filter: Optional filter in format "kernel:instance" (e.g., "DPU:dpu")
  * @return Modified ELF binary as vector of chars
  *
  * This is the main transformation function that:
- * 1. Updates symbol names in .dynsym with new XRT indices
- * 2. Rebuilds .dynstr with new symbol names (deduplicates symbols)
- * 3. Patches BD offsets in control code and control packet sections
- * 4. Builds lookup table for apply_offset_57 opcode transformation
- * 5. Processes all .ctrltext sections to update apply_offset_57 opcodes
- * 6. Clears relocation addends (r_addend = 0)
- * 7. Serializes modified ELF back to binary
+ * 1. Optionally filters relocations to specific kernel:instance (uses get_filtered_section_indices)
+ * 2. Updates symbol names in .dynsym with new XRT indices
+ * 3. Rebuilds .dynstr with new symbol names (deduplicates symbols)
+ * 4. Patches BD offsets in control code and control packet sections
+ * 5. Builds lookup table for apply_offset_57 opcode transformation
+ * 6. Processes all .ctrltext sections to update apply_offset_57 opcodes
+ * 7. Clears relocation addends (r_addend = 0)
+ * 8. Serializes modified ELF back to binary
  *
  * @throws error if input is invalid or sections are missing/malformed
  */
 std::vector<char>
 transform_manager::
-update_rela_sections(const std::vector<arginfo>& entries) {
+update_rela_sections(const std::vector<arginfo>& entries, const std::string& kernel_instance_filter) {
   xrt_idx_lookup.clear();
 
   // Locate required ELF sections
@@ -622,6 +785,15 @@ update_rela_sections(const std::vector<arginfo>& entries) {
 
   if (!dynsym || !dynstr || !dynsec)
     return {};
+
+  // Get filtered section indices if filter is provided
+  bool has_filter = !kernel_instance_filter.empty();
+  std::set<ELFIO::Elf_Half> allowed_section_indices;
+
+  // Get filtered sections based on kernel_instance_filter (will contain section indices allowed for patching)
+  if (has_filter) {
+    allowed_section_indices = get_filtered_section_indices(kernel_instance_filter);
+  }
 
   const auto dynsym_size = dynsym->get_size();
   const auto dynstr_size = dynstr->get_size();
@@ -662,20 +834,28 @@ update_rela_sections(const std::vector<arginfo>& entries) {
     if (!patch_sec)
       throw error(error::error_code::internal_error, "Invalid section index " + std::to_string(sym->st_shndx));
 
+    // Apply filter: skip if section index doesn't match allowed instances
+    bool should_patch = true;
+    if (has_filter && allowed_section_indices.find(sym->st_shndx) == allowed_section_indices.end())
+      should_patch = false;
+
     const auto& patch_sec_name = patch_sec->get_name();
     auto offset = rela->r_offset;
 
     // Special patches (control-code-idx, .ctrlpkt-idx) keep their original names
     const bool is_special_patch = is_ctrlpkt_patch_name(symname) || is_controlcode_patch_name(symname);
-    std::string name = is_special_patch ? symname : std::to_string(entries[num].xrt_idx);
+    std::string name = is_special_patch ? symname : should_patch ? std::to_string(entries[num].xrt_idx) : symname;
     
     // Verify consistency: all instances of a symbol should map to the same new name
     auto name_it = name_map.find(symname);
-    if (name_it != name_map.end()) {
-      if (name_it->second != name)
-        throw error(error::error_code::invalid_input, "Invalid input xrt_id:" + std::string(symname) + " modified only at few places");
-    } else {
-      name_map[symname] = name;
+    if (should_patch == true) {
+      if (name_it != name_map.end()) {
+        if (name_it->second != name)
+          throw error(error::error_code::invalid_input, "Invalid input xrt_id:" + std::string(symname)
+                     + " modified only at few places, expected: " + name_it->second + " got: " + name);
+      } else {
+        name_map[symname] = name;
+      }
     }
 
     // Deduplicate symbols: reuse existing string if same key already exists
@@ -696,7 +876,7 @@ update_rela_sections(const std::vector<arginfo>& entries) {
     sym_new->st_name = new_offset;
 
     // Skip BD patching for special symbols (they don't change)
-    if (is_special_patch == true)
+    if (is_special_patch == true || should_patch == false)
       continue;
 
     // Build lookup table for apply_offset_57 opcode transformation
@@ -734,5 +914,224 @@ update_rela_sections(const std::vector<arginfo>& entries) {
 
   return std::vector<char>(std::istream_iterator<char>(stream), std::istream_iterator<char>());
 }
+
+/**
+ * @brief Update kernel name in ELF symbol table and string table
+ * @param orig_name: Original kernel name to find and replace (can be substring)
+ * @param new_name: New kernel name to use
+ * @return Modified ELF binary as vector of chars
+ *
+ * This function:
+ * 1. Validates ELF is OS ABI 0x46 (AIE2PS/AIE4 group) and ABI version 0x3
+ * 2. Locates the .symtab and .strtab sections
+ * 3. Searches for orig_name as a substring in .strtab entries (works for any symbol type: FUNC, OBJECT, etc.)
+ * 4. Replaces orig_name with new_name within the strings
+ * 5. For C++ mangled names (_Z<len><name>...), automatically updates the length prefix
+ * 6. Rebuilds .strtab with the updated names and recalculates all string offsets
+ * 7. Updates all symbol table entries to point to new string offsets
+ * 8. Serializes modified ELF back to binary
+ *
+ * Example: To replace "DPU" with "XCVB" in "_Z3DPUpcpcpc":
+ *   update_kernel_name("DPU", "XCVB") -> produces "_Z4XCVBpcpcpc"
+ *
+ * @throws error if ELF format is unsupported, sections are missing, or kernel name not found
+ */
+ std::vector<char>
+ transform_manager::
+ update_kernel_name(const std::string& orig_name, const std::string& new_name) {
+   // Validate ELF format: only support OS ABI 0x46 (elf_amd_aie2ps_group) and ABI version 0x3
+   auto os_abi = m_elfio.get_os_abi();
+   auto abi_version = m_elfio.get_abi_version();
+
+   if (os_abi != 0x46)
+     throw error(error::error_code::invalid_input,
+                 "update_kernel_name only supports OS ABI 0x46 (AIE2PS/AIE4 group), got: 0x"
+                 + ELFIO::to_hex_string(os_abi));
+
+   if (abi_version != 0x3)
+     throw error(error::error_code::invalid_input,
+                 "update_kernel_name only supports ABI version 0x3, got: 0x"
+                 + ELFIO::to_hex_string(abi_version));
+
+   // Locate required ELF sections
+   auto symtab = m_elfio.sections[".symtab"];
+   auto strtab = m_elfio.sections[".strtab"];
+
+   if (!symtab || !strtab)
+     throw error(error::error_code::internal_error, ".symtab or .strtab section not found");
+
+   const auto symtab_size = symtab->get_size();
+   const auto strtab_size = strtab->get_size();
+   const auto sym_count = symtab_size / sizeof(ELFIO::Elf32_Sym);
+
+   // Check if kernel name was found
+   bool found = false;
+
+   // Build new string table with updated kernel name
+   std::string new_strtab_data;
+   new_strtab_data.reserve(strtab_size + new_name.size());
+
+   // Map old string offsets to new string offsets
+   std::map<ELFIO::Elf_Word, ELFIO::Elf_Word> offset_map;
+
+   // Parse existing string table and build new one
+   ELFIO::Elf_Word current_offset = 0;
+   ELFIO::Elf_Word new_offset = 0;
+
+   while (current_offset < strtab_size) {
+     // Read null-terminated string at current offset
+     const char* str = strtab->get_data() + current_offset;
+     std::string current_str(str);
+
+     // Map old offset to new offset
+     offset_map[current_offset] = new_offset;
+
+     // Check if this string matches the kernel name to replace
+     bool is_match = false;
+     std::string modified_str = current_str;
+
+     // Check for C++ mangled name: _Z<length><name>...
+     if (current_str.size() > 3 && current_str[0] == '_' && current_str[1] == 'Z' && std::isdigit(current_str[2])) {
+       // Parse the length prefix
+       size_t length_start = 2;
+       size_t length_end = length_start;
+       while (length_end < current_str.size() && std::isdigit(current_str[length_end])) {
+         length_end++;
+       }
+
+       if (length_end > length_start) {
+         // Extract the length value
+         std::string length_str = current_str.substr(length_start, length_end - length_start);
+         size_t name_length = std::stoul(length_str);
+         size_t name_start = length_end;
+         size_t name_end = name_start + name_length;
+
+         // Check if the identifier matches exactly
+         if (name_end <= current_str.size()) {
+           std::string identifier = current_str.substr(name_start, name_length);
+           if (identifier == orig_name) {
+             // Exact match - replace the identifier and update the length
+             is_match = true;
+             std::string new_length = std::to_string(new_name.size());
+             modified_str = "_Z" + new_length + new_name + current_str.substr(name_end);
+           }
+         }
+       }
+     }
+
+     if (is_match) {
+       new_strtab_data.append(modified_str).push_back('\0');
+       new_offset += modified_str.size() + 1;
+       found = true;
+     } else {
+       // No match - copy as is
+       new_strtab_data.append(current_str).push_back('\0');
+       new_offset += current_str.size() + 1;
+     }
+
+     // Move to next string (past null terminator)
+     current_offset += current_str.size() + 1;
+   }
+
+   if (!found)
+     throw error(error::error_code::invalid_input, "Kernel name '" + orig_name + "' not found in symbol table");
+
+   // Create a copy of the symbol table to modify
+   std::vector<char> symtab_copy(symtab->get_data(), symtab->get_data() + symtab_size);
+
+   // Update symbol table entries with new string offsets
+   for (size_t i = 0; i < sym_count; ++i) {
+     auto sym = reinterpret_cast<ELFIO::Elf32_Sym*>(symtab_copy.data() + i * sizeof(ELFIO::Elf32_Sym));
+
+     // Update string offset if it exists in our mapping
+     auto it = offset_map.find(sym->st_name);
+     if (it != offset_map.end()) {
+       sym->st_name = it->second;
+     }
+   }
+
+   // Update the sections with new data
+   strtab->set_data(new_strtab_data);
+   symtab->set_data(symtab_copy.data(), symtab_copy.size());
+
+   // Serialize modified ELF back to binary format
+   std::stringstream stream;
+   stream << std::noskipws;
+   m_elfio.save(stream);
+
+   return std::vector<char>(std::istream_iterator<char>(stream), std::istream_iterator<char>());
+ }
+
+/**
+ * @brief Get all instance names for a given kernel
+ * @param kernel_name: Kernel name to find instances for (e.g., "DPU")
+ * @return Vector of instance names belonging to the kernel
+ *
+ * This function:
+ * 1. Finds FUNC symbol matching kernel name (extracts from mangled name like _Z3DPUPcPc)
+ * 2. Finds all OBJECT symbols whose st_shndx points to the kernel symbol
+ * 3. Returns the instance names
+ */
+std::vector<std::string>
+transform_manager::
+get_kernel_instances(const std::string& kernel_name)
+{
+  // Get .symtab and .strtab sections
+  auto symtab = m_elfio.sections[".symtab"];
+  auto strtab = m_elfio.sections[".strtab"];
+
+  if (!symtab || !strtab)
+    throw error(error::error_code::internal_error,
+                ".symtab or .strtab not found, required for getting kernel instances");
+
+  const auto symtab_size = symtab->get_size();
+  const auto strtab_size = strtab->get_size();
+  const auto sym_count = symtab_size / sizeof(ELFIO::Elf32_Sym);
+
+  // Pass 1: Find FUNC symbol matching the kernel name
+  ELFIO::Elf_Word kernel_symbol_index = 0;
+
+  for (size_t i = 0; i < sym_count; ++i) {
+    auto sym = reinterpret_cast<const ELFIO::Elf32_Sym*>(symtab->get_data() + i * sizeof(ELFIO::Elf32_Sym));
+    unsigned char sym_type = ELF_ST_TYPE(sym->st_info);
+
+    // Skip non-function symbols or invalid names
+    if (sym_type != ELFIO::STT_FUNC || sym->st_name >= strtab_size)
+      continue;
+
+    const char* sym_name = strtab->get_data() + sym->st_name;
+    std::string identifier = extract_kernel_name_from_mangled(sym_name);
+
+    if (identifier == kernel_name) {
+      kernel_symbol_index = i;
+      break;
+    }
+  }
+
+  if (kernel_symbol_index == 0)
+    throw error(error::error_code::invalid_input,
+                "Kernel '" + kernel_name + "' not found in .symtab");
+
+  // Pass 2: Find all OBJECT symbols that belong to this kernel
+  std::vector<std::string> instances;
+
+  for (size_t i = 0; i < sym_count; ++i) {
+    auto sym = reinterpret_cast<const ELFIO::Elf32_Sym*>(symtab->get_data() + i * sizeof(ELFIO::Elf32_Sym));
+    unsigned char sym_type = ELF_ST_TYPE(sym->st_info);
+
+    // Skip non-object symbols or invalid names
+    if (sym_type != ELFIO::STT_OBJECT || sym->st_name >= strtab_size)
+      continue;
+
+    // Check if this object symbol belongs to the kernel
+    if (sym->st_shndx == kernel_symbol_index) {
+      const char* sym_name = strtab->get_data() + sym->st_name;
+      instances.emplace_back(sym_name);
+    }
+  }
+
+  return instances;
+}
+
 } // End of Namespace aiebu
 

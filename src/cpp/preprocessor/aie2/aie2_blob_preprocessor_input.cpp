@@ -963,10 +963,12 @@ add_preemption_code(uint32_t col)
       auto type = pdi.get_optional<std::string>("type");
       if (type && !type.get().compare(pm_ctrlpkt_type))
       {
-        kernel_map[kernel].add_common_data(get_pmctrlpkt_name(id), readfile(pdi.get<std::string>("PDI_file"), paths));
+        std::vector<char> data = m_artifacts->get(pdi.get<std::string>("PDI_file"),paths);
+        kernel_map[kernel].add_common_data(get_pmctrlpkt_name(id), data);
         kernel_map[kernel].add_pm_id(id);
       } else {
-        kernel_map[kernel].add_common_data(get_pdi_name(id), readfile(pdi.get<std::string>("PDI_file"), paths));
+        std::vector<char> data = m_artifacts->get(pdi.get<std::string>("PDI_file"), paths);
+        kernel_map[kernel].add_common_data(get_pdi_name(id), data);
         kernel_map[kernel].add_pdi_id(get_pdi_name(id));
       }
     }
@@ -978,18 +980,18 @@ add_preemption_code(uint32_t col)
   {
     for (const auto& [unused, pic] : pinstance)
     {
-      std::string tname = pic.get<std::string>("id");
-      //m_data[tname] = std::move(readfile(pic.get<std::string>("TXN_ctrl_code_file")));
-      auto txn_code = readfile(pic.get<std::string>("TXN_ctrl_code_file"), paths);
-      std::vector<char> ctrl_pkt_code;
-      if (!pic.get<std::string>("ctrl_packet_file", "").empty())
-        ctrl_pkt_code = readfile(pic.get<std::string>("ctrl_packet_file"), paths);
-
       std::vector<char> jdata;
-      if (!pic.get<std::string>("patch_info_file", "").empty())
-        jdata = readfile(pic.get<std::string>("patch_info_file"), paths);
+      std::vector<char> ctrl_pkt_code;
+      std::vector<char> txn_code;
 
+      std::string tname = pic.get<std::string>("id");
+      txn_code = m_artifacts->get(pic.get<std::string>("TXN_ctrl_code_file"), paths);
+      if (!pic.get<std::string>("ctrl_packet_file", "").empty())
+        ctrl_pkt_code =  m_artifacts->get(pic.get<std::string>("ctrl_packet_file"), paths);
+      if (!pic.get<std::string>("patch_info_file", "").empty())
+        jdata = m_artifacts->get(pic.get<std::string>("patch_info_file"), paths);
       auto instance = std::make_shared<aie2_blob_transaction_preprocessor_input>();
+
       kernel_map[kernel].add_instance(tname, instance);
       instance->set_args(txn_code, jdata, ctrl_pkt_code, {}, {}, kernel_map[kernel].get_pm_id_list(), kernel_map[kernel].get_pdi_id_list());
     }

@@ -11,19 +11,83 @@
 namespace aiebu {
 
 /*!
- * @struct arginfo
+ * @struct instinfo
  *
  * @brief
- * arginfo represent a pair of xrt_idx and its BD offset in a
- * control code.
- * On AIE2PS and AIE4 platform where we use ASM control code,
- * APPLY_OFFSET_57 opcode and ctrlpkt has the xrt_idx and BD offset
- * that the address of xrt_idx (at runtime) needs to be patched. This
- * struct represent one patch pair (xrt_idx and its BD offset)
+ * instinfo represents the arginfo (a table of xrt_idx and its
+ * bd_offset) of a instance. It also has the instance name.
  */
-struct arginfo {
-  uint32_t xrt_idx;
-  uint64_t bd_offset;
+ struct instinfo {
+  /*!
+   * @struct arginfo
+   *
+   * @brief
+   * arginfo represents a pair of xrt_idx and its BD offset in a
+   * control code.
+   * On AIE2PS and AIE4 platform where we use ASM control code,
+   * APPLY_OFFSET_57 opcode has the xrt_idx and BD offset that the
+   * address of xrt_idx (at runtime) needs to be patched. This
+   * struct represent one patch pair (xrt_idx and its BD offset)
+   */
+  struct arginfo {
+    uint32_t xrt_idx;
+    uint64_t bd_offset;
+  };
+  std::string inst_name;
+  std::vector<arginfo> inst_arginfo;
+};
+
+class file_artifact_impl;
+
+/*
+ * The file_artifact class provides an interface for managing
+ * virtual files (in-memory buffers).
+ * It uses PIMPL (file_artifact_impl) to encapsulate internal data and logic
+ */
+class file_artifact
+{
+  public:
+    file_artifact();
+    ~file_artifact();
+    /*
+     * Add a virtual file (in-memory buffer) into the artifact by reference.
+     *
+     * Note: it involvs copy of name and the buffer. But the caller still
+     * owns the name and buffer
+     * @param name   name of the buffer or virtual file.
+     * @param buffer contents stored as a vector of chars.
+     */
+    void add_vfile(const std::string& name, const std::vector<char>& buffer);
+    /*
+     * Add a virtual file (in-memory buffer) into the artifact by rvalue.
+     *
+     * Note: there is no extra copy of the buffer. But the ownership
+     * of the buffer is transferred.
+     *
+     * @param name   name of the buffer or virtual file.
+     * @param buffer contents stored as a vector of chars.
+     */
+    void add_vfile(std::string& name, std::vector<char>&& buffer);
+
+    /*
+     * Retrieve the contents of a virual file (in-memory buffer) from the artifacts
+     *
+     * @param name   name of the in-mem buffer/virtual file.
+     * @return buffer contents in a vector of chars.
+     */
+    const std::vector<char>& get(const std::string& name) const;
+    /*
+     * Retrieve the contents of a virual file (in-memory buffer) from the artifact
+     * or file from the disk
+     *
+     * @param name   name of the in-mem buffer/virtual file or physical file.
+     * @param paths  paths to search if the file is in disk
+     * @return buffer contents in a vector of chars.
+     */
+    std::vector<char> get(const std::string& name,
+                          const std::vector<std::string>& paths) const;
+  private:
+    std::unique_ptr<file_artifact_impl> pimpl;
 };
 
 // Assembler Class
@@ -61,8 +125,8 @@ class aiebu_assembler
   private:
     buffer_type m_type;
     buffer_type m_output_type;
-    std::vector<arginfo> arginfo_tbl;
-
+    class argtbl_impl;  // Forward declaration
+    file_artifact artifacts;
   public:
     /*
      * Constructor takes buffer type , 2 buffer and a vector of symbols with
@@ -117,6 +181,24 @@ class aiebu_assembler
               const std::vector<char>& patch_json = {});
 
     /*
+     * In memory api for full elfs.
+     * Construct aiebu_assembler from config json buffer and in memory buffers
+     *
+     * @type:               ELF buffer type (aie2_config, aie2ps_config, aie4_config)
+     * @config_json_buffer: Config json content
+     * @artifact:           file_artifact object contains the mapping between
+     *                      virtual file (in-memory buffer) name and its binary
+     * @flags:              for passing configuration flags to the assembler
+     *                      ex: disabledump (disable debug dump),
+     *                          fulldump (enable debug dump),
+     *                          opt_level_1 (for optimization)
+     */
+    aiebu_assembler(buffer_type type,
+                    const std::vector<char>& config_json_buffer,
+                    const file_artifact& artifact,
+                    const std::vector<std::string>& flags);
+
+    /*
      * This function return vector with elf content.
      *
      * Inside elf for IPU, instr_buf will be placed in .text section and control_buf will
@@ -154,53 +236,89 @@ class aiebu_assembler
      * @class argtbl
      *
      * @brief
-     * aiebu_assembler::argtbl represents a table of xrt_idx and BD offset.
-     * The table is constructed from an aiebu_assembler object based on the
-     * control code that indicate which xrt_idx should patched into which BD.
+     * aiebu_assembler::argtbls represents a vector of instance infor.
+     * Inside each element, there is a table of xrt_idx and BD offset for
+     * that instance.
+     *
+     * The class is constructed from an aiebu_assembler object based on the
+     * control code that indicate which xrt_idx should patched into which BD
+     * for each instance within the given kernel name.
      *
      * This object can be used to dump the table and modify the xrt_idx and its
-     * BD offset in any entry from an aiebu_assembler object. And then flush it
+     * BD offset in any entry in any instance in a given kernel. And then flush it
      * back to aiebu_assembler so that the xrt_id and its BD offset can be updated
      * in the control code and .dynamic sections of ELF.
+     *
+     * The kernel name can be updated at the same time by calling set_name() API.
+     * So that when this object is flushed back, the kernel name can be updated in
+     * ELF as well.
      *
      * When using this class to do xrt argument transform
      *      1. Only host patching is supported.
      *      2. Only support AIE2PS and AIE4
      */
-    class argtbl_impl;
-    class argtbl
-    {
-      private:
-        std::shared_ptr<argtbl_impl> handle;
-      public:
-        explicit argtbl(std::shared_ptr<argtbl_impl> in_impl);
+     class argtbl
+     {
+       private:
+         std::shared_ptr<argtbl_impl> handle;
+       public:
+         explicit argtbl(std::shared_ptr<argtbl_impl> in_impl);
 
-        /*
-         * Dump the reference of vetor of xrt argument (xrt_idx)
-         * and BD offset. Caller can modify entries in the vector
-         * in place. Then the whole argtbl object can be flushed
-         * back to aiebu_assembler to update the ELF to do the
-         * xrt_idx transform.
-         */
-        std::vector<arginfo>& dump() const;
+         /*
+          * Get the reference of vector of instance info. Inside
+          * each instance, there is table of xrt argument (xrt_idx)
+          * and BD offset of that instance. Caller can modify entries
+          * in the table in place. Then the whole argtbl object can be flushed
+          * back to aiebu_assembler to update the ELF to do the
+          * xrt_idx transform.
+          */
+         std::vector<instinfo>& get();
 
-    };
-    /*
-     * Get an argtbl object from aiebu_assembler. In this function
-     * aiebu_assember will scan the ELF and construct a table (vector)
-     * of xrt_idx and BD offset. Then it returns an object of this table
-     * which can be used to dump the reference of the table and modify
-     * the table in place.
-     */
-    argtbl get_argtbl();
+         /*
+          * Update the kernel name in the instance info object
+          * @param name: the new kernel name (e.g., "NewKernel")
+          *
+          * The kernel name in ELF won't be updated until the whole
+          * object is flushed back.
+          */
+         void set_name(const std::string& name);
 
-    /*
-     * Flush the argtbl object to aiebu_assembler. In this function,
-     * aiebu will take the argtbl object and update control code and
-     * patching metadata based on the xrt_idx and BD offset in the
-     * arg table.
-     */
-    void flush_argtbl(const argtbl& arg_table);
+         /*
+          * Get the handle of the argtbl_impl object
+          */
+         const std::shared_ptr<argtbl_impl>&
+         get_handle() const
+         {
+           return handle;
+         }
+     };
+
+     /*
+      * Get an argtbl object from aiebu_assembler for a given
+      * kernel name. In this function aiebu_assember will scan
+      * the ELF and construct a vector of instance info (instinfo).
+      * Inside each instinfo, we have a table (vector)
+      * of xrt_idx and BD offset of that kernel:inst's control code.
+      *
+      * The object can be used to dump the reference of the instance
+      * info and modify the table in place inside each instance.
+      *
+      * NOTE: applicable for only full elf's
+      */
+     argtbl get_argtbl(const std::string& kernel_name);
+
+     /*
+      * Flush the argtbl object to aiebu_assembler. In this function,
+      * aiebu will take the argtbl object and update control code and
+      * patching metadata based on the xrt_idx and BD offset in the
+      * arg table for each instance.
+      *
+      * Also, if the kernel name associated with the argtbl object changes,
+      * the kernel name in the ELF will be updated accordingly.
+      *
+      * NOTE: applicable for only full elf's
+      */
+      void flush_argtbl(const argtbl& arg_table);
 };
 
 } //namespace aiebu

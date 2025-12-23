@@ -134,6 +134,7 @@
 <li><a href="#save_timestamps-0x1c">SAVE_TIMESTAMPS (0x1c)</a></li>
 <li><a href="#sleep-0x1d">SLEEP (0x1d)</a></li>
 <li><a href="#save_register-0x1e">SAVE_REGISTER (0x1e)</a></li>
+<li><a href="#rel_acq_sync-0x21">REL_ACQ_SYNC (0x21)</a></li>
 </ul>
 </li>
 <li><a href="#directives">Directives</a><ul>
@@ -1550,6 +1551,42 @@ only. Calling this operation doesn't yield control to another job.</p>
 <p>Used to save the register address values. AIE compiler will also add unique identifier while generating control code.
 Values will be saved in the shared data memory. Whenever the allocated shared memory gets fille, CERT will start uC-DMA
 to transfer data from sDM to host memory.</p>
+<h2 id="rel_acq_sync-0x21">REL_ACQ_SYNC (0x21)</h2>
+<p>Reads the release address and immediately busy-waits on the acquire address to support the release-acquire lock pattern.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: center;">0x21</th>
+<th>-</th>
+<th>-</th>
+<th>rel_address</th>
+<th>acq_address</th>
+<th style="text-align: right;">instruction size</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">opcode (8b)</td>
+<td>pad (8b)</td>
+<td>pad (16b)</td>
+<td>const (32b)</td>
+<td>const (32b)</td>
+<td style="text-align: right;">12B</td>
+</tr>
+</tbody>
+</table>
+<p>This operation allows for implementing a release-acquire lock pattern for compact and  fast global-barrier implementation across all participating uC's
+The compiler is responsible for allocating the locks and  calculating appropriate relaease and aquire addresses.
+Example:</p>
+<pre><code>; rel_address and acq_address shall always refer to the same lock.
+; rel_address shall contain a release operation on the lock.
+; acq_addres shall contain an acquire operation on the lock.
+; rel_val possible values are only -1 or 1
+; acq_val possible values are only 0 or numUCsParticipatingInLock
+
+REL_ACQ_SYNC 0x0205720c, 0x02057004 ; barrierId: 0, lockId: 28, release_aquire relVal: 1  acqVal:  3
+
+</code></pre>
 <h1 id="directives">Directives</h1>
 <p>The directive syntax is same as that used by GNU assembler <a href="https://sourceware.org/binutils/docs/as/Pseudo-Ops.html">https://sourceware.org/binutils/docs/as/Pseudo-Ops.html</a>,
 although only the following subset is supported.</p>
@@ -1819,7 +1856,7 @@ Example:</p>
 <pre><code>...
 ;For telluride
 .target aie2ps
-;For soundwave
+;For npu3
 .target aie4-a
 ;For medusa
 .target aie4

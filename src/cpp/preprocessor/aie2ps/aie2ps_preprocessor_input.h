@@ -27,6 +27,7 @@ protected:
 
   std::vector<std::string> m_libpaths;
   std::vector<std::string> m_flags;
+  const file_artifact* m_artifacts = nullptr;
   uint32_t m_control_packet_index = 0xFFFFFFFF;
   uint32_t m_control_packet_offset_correction = 8;
   enum class offset_type {
@@ -51,21 +52,22 @@ public:
   asm_preprocessor_input& operator=(const asm_preprocessor_input& rhs) = default;
   asm_preprocessor_input(asm_preprocessor_input &&s) = default;
   asm_preprocessor_input& operator=(asm_preprocessor_input&& rhs) = default;
-
   const std::vector<std::string>& get_include_paths() const { return m_libpaths; }
   uint32_t get_control_packet_index() const { return m_control_packet_index; }
   const std::vector<std::string>& get_flags() const { return m_flags; }
-
+  const file_artifact* get_artifacts() const { return m_artifacts; }
   virtual void set_args(const std::vector<char>& control_code,
                         const std::vector<char>& patch_json,
                         const std::vector<char>& /*buffer2*/,
                         const std::vector<std::string>& flags,
                         const std::vector<std::string>& libpaths,
-                        const std::map<uint32_t, std::vector<char> >& /*ctrlpkt*/) override
+                        const std::map<uint32_t, std::vector<char> >& /*ctrlpkt*/,
+                        const file_artifact* artifacts = nullptr) override
   {
     m_libpaths = libpaths;
     m_flags = flags;
     m_data["control_code"] = control_code;
+    m_artifacts = artifacts;
     if (patch_json.size() !=0 )
     {
       vector_streambuf vsb(patch_json);
@@ -88,6 +90,7 @@ public:
   {
     return m_ctrlpkt_id_map;
   }
+
 };
 
 class aie2ps_preprocessor_input : public asm_preprocessor_input
@@ -99,6 +102,7 @@ public:
 
 class asm_config_preprocessor_input : public preprocessor_input
 {
+  const file_artifact* m_artifacts = nullptr;
 protected: // NOLINT
   std::map<std::string, std::map<std::string, std::shared_ptr<asm_preprocessor_input>>> m_preprocessor_input;
 public:
@@ -114,14 +118,15 @@ public:
     for (const auto& [unused, pic] : pinstance)
     {
       auto tname = pic.get<std::string>("id");
-      auto ccode_file = findFilePath(pic.get<std::string>("ctrl_code_file"), paths);
-      auto ccode = readfile(ccode_file);
+      auto ccode_file_name = pic.get<std::string>("ctrl_code_file");
+      auto patch_json_file = pic.get<std::string>("patch_info_file", "");
 
-      std::vector<char> jdata;
-      if (!pic.get<std::string>("patch_info_file", "").empty())
-        jdata = readfile(pic.get<std::string>("patch_info_file"), paths);
-
-      add_preprocessor_input(kernel, tname, ccode, jdata, flags, paths);
+      std::vector<char> ccode;
+      std::vector<char> jdata;      
+      ccode = m_artifacts->get(ccode_file_name, paths);
+      if (!patch_json_file.empty())
+        jdata = m_artifacts->get(patch_json_file, paths);
+      add_preprocessor_input(kernel, tname, ccode, jdata, flags, paths, m_artifacts);
     }
   }
 
@@ -171,10 +176,12 @@ public:
                 const std::vector<char>& /*buffer2*/,
                 const std::vector<std::string>& libs,
                 const std::vector<std::string>& libpaths,
-                const std::map<uint32_t, std::vector<char> >& /*ctrlpkt*/) override
+                const std::map<uint32_t, std::vector<char> >& /*ctrlpkt*/,
+                const file_artifact* artifacts = nullptr) override
   {
     if (patch_json.size() !=0)
     {
+      m_artifacts = artifacts;
       vector_streambuf vsb(patch_json);
       std::istream elf_stream(&vsb);
       parse_config_json(elf_stream, libs, libpaths);
@@ -186,7 +193,8 @@ public:
                                       const std::vector<char>& /*control_code*/,
                                       const std::vector<char>& /*patch_json*/,
                                       const std::vector<std::string>& /*flags*/,
-                                      const std::vector<std::string>& /*paths*/) = 0;
+                                      const std::vector<std::string>& /*paths*/,
+                                      const file_artifact* artifacts) = 0;
 
   ~asm_config_preprocessor_input() override = default;
 };
@@ -200,10 +208,11 @@ public:
                               const std::vector<char>& control_code,
                               const std::vector<char>& patch_json,
                               const std::vector<std::string>& flags,
-                              const std::vector<std::string>& paths) override
+                              const std::vector<std::string>& paths,
+                              const file_artifact* artifacts) override
   {
     auto input = std::make_shared<T>();
-    input->set_args(control_code, patch_json, {}, flags, paths, {});
+    input->set_args(control_code, patch_json, {}, flags, paths, {}, artifacts);
     m_preprocessor_input[kernel][instance] = input;
   }
 };

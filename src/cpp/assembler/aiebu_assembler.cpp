@@ -17,7 +17,7 @@
 
 #include <map>
 #include <string>
-
+#include <limits>
 
 namespace aiebu {
 
@@ -37,7 +37,7 @@ aiebu_assembler(buffer_type type,
                 const std::vector<char>& patch_json,
                 const std::vector<std::string>& libs,
                 const std::vector<std::string>& libpaths,
-                const std::map<uint32_t, std::vector<char> >& ctrlpkt) : m_type(type)
+                const std::map<uint32_t, std::vector<char> >& ctrlpkt) : m_type(type), artifacts()
 {
   if (type == buffer_type::blob_instr_dpu)
   {
@@ -60,31 +60,60 @@ aiebu_assembler(buffer_type type,
   else if (type == buffer_type::asm_aie2ps)
   {
     aiebu::assembler a(assembler::elf_type::aie2ps_asm);
-    elf_data = a.process(buffer1, libs, libpaths, patch_json);
+    elf_data = a.process(buffer1, libs, libpaths, patch_json, {}, {}, &artifacts);
     m_output_type = aiebu::aiebu_assembler::buffer_type::elf_aie2ps;
   }
   else if (type == buffer_type::aie2_config)
   {
     aiebu::assembler a(assembler::elf_type::aie2_config);
-    elf_data = a.process(buffer1, libs, libpaths, patch_json, buffer2);
+    elf_data = a.process(buffer1, libs, libpaths, patch_json, buffer2, {}, &artifacts);
     m_output_type = aiebu::aiebu_assembler::buffer_type::elf_aie2_config;
   }
   else if (type == buffer_type::asm_aie4)
   {
     aiebu::assembler a(assembler::elf_type::aie4_asm);
-    elf_data = a.process(buffer1, libs, libpaths, patch_json);
+    elf_data = a.process(buffer1, libs, libpaths, patch_json, {}, {}, &artifacts);
     m_output_type = aiebu::aiebu_assembler::buffer_type::elf_aie4;
   }
   else if (type == buffer_type::aie2ps_config)
   {
     aiebu::assembler a(assembler::elf_type::aie2ps_config);
-    elf_data = a.process(buffer1, libs, libpaths, patch_json, buffer2);
+    elf_data = a.process(buffer1, libs, libpaths, patch_json, buffer2, {}, &artifacts);
     m_output_type = aiebu::aiebu_assembler::buffer_type::elf_aie2ps_config;
   }
   else if (type == buffer_type::aie4_config)
   {
     aiebu::assembler a(assembler::elf_type::aie4_config);
-    elf_data = a.process(buffer1, libs, libpaths, patch_json, buffer2);
+    elf_data = a.process(buffer1, libs, libpaths, patch_json, buffer2, {}, &artifacts);
+    m_output_type = aiebu::aiebu_assembler::buffer_type::elf_aie4_config;
+  }
+  else {
+    throw error(error::error_code::invalid_buffer_type, "Buffer_type not supported !!!");
+  }
+}
+
+aiebu_assembler::
+aiebu_assembler(buffer_type type,
+                const std::vector<char>& config_json_buffer,
+                const file_artifact& artifacts,
+                const std::vector<std::string>& flags)
+{
+  if (type == buffer_type::aie2_config)
+  {
+    aiebu::assembler a(assembler::elf_type::aie2_config);
+    elf_data = a.process({}, flags, {}, config_json_buffer, {}, {},&artifacts);
+    m_output_type = aiebu::aiebu_assembler::buffer_type::elf_aie2_config;
+  }
+  else if (type == buffer_type::aie2ps_config)
+  {
+    aiebu::assembler a(assembler::elf_type::aie2ps_config);
+    elf_data = a.process({}, flags, {}, config_json_buffer, {}, {},&artifacts);
+    m_output_type = aiebu::aiebu_assembler::buffer_type::elf_aie2ps_config;
+  }
+  else if (type == buffer_type::aie4_config)
+  {
+    aiebu::assembler a(assembler::elf_type::aie4_config);
+    elf_data = a.process({}, flags, {}, config_json_buffer, {}, {},&artifacts);
     m_output_type = aiebu::aiebu_assembler::buffer_type::elf_aie4_config;
   }
   else {
@@ -98,7 +127,6 @@ get_elf() const
 {
   return elf_data;
 }
-
 
 void
 aiebu_assembler::
@@ -123,16 +151,44 @@ disassemble(const std::filesystem::path &root) const
 
 class aiebu_assembler::argtbl_impl
 {
-  std::vector<arginfo>& m_tbl;
+  std::vector<instinfo> m_tbl;
+  std::string m_kernel_name;
+  std::string m_new_kernel_name;
 
   public:
-    explicit argtbl_impl(std::vector<arginfo>& in_tbl)
-      : m_tbl(in_tbl) { }
+  explicit argtbl_impl(std::vector<instinfo> in_tbl, std::string kernel_name)
+      : m_tbl(std::move(in_tbl)), m_kernel_name(std::move(kernel_name)), m_new_kernel_name(m_kernel_name) { }
 
-    std::vector<arginfo>&
-    dump() const
+    std::vector<instinfo>&
+    get()
     {
       return m_tbl;
+    }
+
+    void
+    set_name(const std::string& name)
+    {
+      // Update new kernel name (ELF update happens in flush_argtbl)
+      m_new_kernel_name = name;
+    }
+
+    void
+    set_kernel_name(const std::string& name)
+    {
+      // Update new kernel name (ELF update happens in flush_argtbl)
+      m_kernel_name = name;
+    }
+
+    const std::string&
+    get_new_name() const
+    {
+      return m_new_kernel_name;
+    }
+
+    const std::string&
+    get_kernel_name() const
+    {
+      return m_kernel_name;
     }
 };
 
@@ -141,34 +197,80 @@ argtbl(std::shared_ptr<argtbl_impl> in_impl)
   : handle(std::move(in_impl))
 {}
 
-std::vector<arginfo>&
+std::vector<instinfo>&
 aiebu_assembler::argtbl::
-dump() const
+get()
 {
-  return handle->dump();
+  return handle->get();
+}
+
+void
+aiebu_assembler::argtbl::
+set_name(const std::string& name)
+{
+  handle->set_name(name);
 }
 
 aiebu_assembler::argtbl
 aiebu_assembler::
-get_argtbl()
+get_argtbl(const std::string& kernel_name)
 {
+  std::vector<instinfo> tbl;
+
   transform_manager trans(elf_data);
-  arginfo_tbl = trans.extract_rela_sections();
-  return argtbl{std::make_shared<argtbl_impl>(arginfo_tbl)};
+
+  // Get all instances for this kernel from the ELF
+  // For each instance, extract its arginfo table
+  auto instances = trans.get_kernel_instances(kernel_name);
+
+  for (const auto& inst_name : instances) {
+    instinfo info;
+    info.inst_name = inst_name;
+
+    // Extract relocation info for this kernel:instance
+    std::string filter = kernel_name + ":" + inst_name;
+    auto args = trans.extract_rela_sections(filter);
+
+    // Convert arginfo to instinfo::arginfo
+    for (const auto& arg : args) {
+      info.inst_arginfo.push_back({arg.xrt_idx, arg.bd_offset});
+    }
+
+    tbl.push_back(std::move(info));
+  }
+
+  return argtbl{std::make_shared<argtbl_impl>(std::move(tbl), kernel_name)};
 }
 
 void
 aiebu_assembler::
 flush_argtbl(const argtbl& arg_table)
 {
-  const auto& table = arg_table.dump();
-  if (table.size() != arginfo_tbl.size())
-    throw error(error::error_code::invalid_input,
-                "Table size mismatch: got " + std::to_string(table.size())
-                + ", expected " + std::to_string(arginfo_tbl.size()));
+  const auto& impl = arg_table.get_handle();
+  const auto& table = impl->get();
+  const auto& orig_kernel = impl->get_kernel_name();
+  const auto& new_kernel = impl->get_new_name();
 
-  transform_manager trans(elf_data);
-  elf_data = trans.update_rela_sections(table);
+  // Update kernel name in ELF if it changed
+  if (!orig_kernel.empty() && orig_kernel != new_kernel) {
+    transform_manager trans(elf_data);
+    elf_data = trans.update_kernel_name(orig_kernel, new_kernel);
+    impl->set_kernel_name(new_kernel);
+  }
+
+  // Update relocation sections for each instance
+  for (const auto& inst : table) {
+    std::string filter = new_kernel + ":" + inst.inst_name;
+
+    // Convert instinfo::arginfo to arginfo for transform_manager
+    std::vector<arginfo> args;
+    for (const auto& arg : inst.inst_arginfo) {
+      args.push_back({arg.xrt_idx, arg.bd_offset});
+    }
+
+    transform_manager trans(elf_data);
+    elf_data = trans.update_rela_sections(args, filter);
+  }
 }
 
 aiebu_assembler::
@@ -179,6 +281,73 @@ aiebu_assembler(const std::string& elf_fnm)
 
 aiebu_assembler::
 aiebu_assembler(const std::vector<char>& buffer): elf_data(buffer) { }
+
+class file_artifact_impl
+{
+  public:
+    void add_vfile(const std::string& name, const std::vector<char>& buffer)
+    {
+      m_artifacts[name] = buffer;
+    }
+
+    void add_vfile(std::string& name, std::vector<char>&& buffer)
+    {
+      m_artifacts[name] = std::move(buffer);
+    }
+
+    const std::vector<char>& get(const std::string& name) const
+    {
+      auto it = m_artifacts.find(name);
+      if (it != m_artifacts.end())
+        return it->second;
+      throw error(error::error_code::invalid_input, "entry not found in artifacts"); 
+    }
+
+    std::vector<char> get(const std::string& name, const std::vector<std::string>& paths) const
+    {
+      auto it = m_artifacts.find(name);
+      if (it != m_artifacts.end()) 
+        return it->second;
+      return readfile(name, paths);
+    }
+
+  private:
+    std::unordered_map<std::string, std::vector<char>> m_artifacts;
+};
+
+file_artifact::
+file_artifact() : pimpl(std::make_unique<file_artifact_impl>())
+{}
+
+file_artifact::~file_artifact() = default;
+
+void
+file_artifact::
+add_vfile(const std::string& name, const std::vector<char>& buffer)
+{
+  pimpl->add_vfile(name, buffer);
+}
+
+void
+file_artifact::
+add_vfile(std::string& name, std::vector<char>&& buffer)
+{
+  pimpl->add_vfile(name, std::move(buffer));
+}
+
+const std::vector<char>&
+file_artifact::
+get(const std::string& name) const
+{
+  return pimpl->get(name);
+}
+
+std::vector<char>
+file_artifact::
+get(const std::string& name, const std::vector<std::string>& paths) const
+{
+  return pimpl->get(name, paths);
+}
 
 }
 
@@ -197,7 +366,8 @@ aiebu_assembler_get_elf(enum aiebu_assembler_buffer_type type,
                         size_t pm_ctrlpkt_size)
 {
   int ret = 0;
-
+  constexpr size_t MAX_ALLOC =
+    static_cast<size_t>(std::numeric_limits<std::ptrdiff_t>::max());
   if (buffer1 == nullptr && buffer1_size != 0)
   {
     aiebu::log_error() << "Invalid buffer1 size";
@@ -242,7 +412,13 @@ aiebu_assembler_get_elf(enum aiebu_assembler_buffer_type type,
 
     aiebu::aiebu_assembler handler((aiebu::aiebu_assembler::buffer_type)type, v1, v2, v3, vlibs, vlibpaths, mctrlpkt);
     velf = handler.get_elf();
-    char *aelf = static_cast<char*>(std::malloc(sizeof(char)*velf.size()));
+
+    if (velf.size() > MAX_ALLOC)
+      throw std::bad_alloc();
+    char* aelf = static_cast<char*>(std::malloc(velf.size()));
+    if (!aelf)
+      throw std::bad_alloc();
+
     std::copy(velf.begin(), velf.end(), aelf);
     *elf_buf = (void*)aelf;
     ret =  static_cast<int>(velf.size());

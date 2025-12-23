@@ -105,9 +105,7 @@ namespace aiebu {
         std::string path = external_buffer.second.get<std::string>("path", "default_path");
         std::string ctrl_pkt_name = ".ctrlpkt-" + std::to_string(m_control_packet_index);
         std::vector<char> ctrl_pkt_code;
-        auto paths = get_include_paths();
-        auto filepath = findFilePath(path, paths);
-        ctrl_pkt_code = readfile(filepath);
+        ctrl_pkt_code = m_artifacts->get(path, m_libpaths);
         m_controlpkt[ctrl_pkt_name] = ctrl_pkt_code;
         m_ctrlpkt_id_map.insert({arg, ctrl_pkt_name});
       }

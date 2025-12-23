@@ -93,7 +93,6 @@ public:
 
 class include_directive: public directive
 {
-
   bool read_include_file(std::string filename);
 public:
   include_directive() = default;
@@ -299,15 +298,14 @@ class asm_parser: public std::enable_shared_from_this<asm_parser>
   bool annotation_state = false;
   std::vector<annotation_type> m_annotation_list;
   std::shared_ptr<partition_info> m_partition;
-
+  const file_artifact* m_artifacts;
 public:
-  asm_parser(const std::vector<char>& data, const std::vector<std::string>& include_list):m_data(data), m_include_list(include_list)
+  asm_parser(const std::vector<char>& data, const std::vector<std::string>& include_list, const file_artifact* artifacts = nullptr):m_data(data),  m_include_list(include_list), m_artifacts(artifacts)
   {
     set_data_state(false);
     m_current_col = -1;
     m_partition = std::make_shared<partition_info>(DEFAULT_COLUMN, 0);
   }
-
   void set_data_state(bool state) { isdatastack.push(state); }
 
   void pop_data_state() { isdatastack.pop();}
@@ -325,8 +323,8 @@ public:
   std::vector<annotation_type> get_annotations() { return std::move(m_annotation_list); }
 
   const std::vector<std::string>& get_include_list() const { return m_include_list; }
-
   std::string get_current_label() const { return m_current_label; }
+  const file_artifact* get_artifacts() const { return m_artifacts;}
 
   std::string top_label() const
   {
@@ -364,6 +362,7 @@ public:
 
   void parse_lines(const std::vector<char>& data, std::string& file);
 
+  std::vector<char> get_asm_data(const std::string& name);
   void set_current_col(int col) { m_current_col = col;
     m_col[m_current_col] = col_data();
   }

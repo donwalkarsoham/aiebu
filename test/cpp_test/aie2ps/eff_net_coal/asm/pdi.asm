@@ -1,8 +1,8 @@
 pdi:
-.include aie_asm_elfs.asm
+.include asm/aie_asm_elfs.asm
 .eop
-.include aie_asm_init.asm
+.include asm/aie_asm_init.asm
 .eop
-.include aie_asm_enable.asm
+.include asm/aie_asm_enable.asm
 .eop
 .endl pdi
